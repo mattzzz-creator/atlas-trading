@@ -15,4 +15,5 @@ RUN cd frontend && npm install && npm run build
 COPY *.py .
 RUN mkdir -p dist && cp -r frontend/dist/. dist/
 
-CMD ["sh", "-c", "python -m uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
