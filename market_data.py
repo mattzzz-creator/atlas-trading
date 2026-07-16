@@ -99,7 +99,7 @@ def fetch_market(pair: str, timeframe: str = "5min") -> pd.DataFrame:
         return pd.DataFrame()
 
     if cfg["source"] == "yfinance":
-        return fetch_yfinance(cfg["yf"], "5m", "1d")
+        return fetch_yfinance(cfg["yf"], "1h", "5d")
     elif cfg["source"] == "binance":
         return fetch_binance(cfg["symbol"], "5m")
 
