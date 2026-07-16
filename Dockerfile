@@ -6,14 +6,17 @@ RUN apt-get update && apt-get install -y curl && \
 
 WORKDIR /app
 
+# Install Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Build frontend
 COPY frontend ./frontend
-RUN cd frontend && npm install && npm run build
+RUN cd frontend && npm install && npm run build && \
+    mkdir -p /app/dist && cp -r /app/frontend/dist/. /app/dist/
 
+# Copy Python files
 COPY *.py .
-RUN mkdir -p dist && cp -r frontend/dist/. dist/
 
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
