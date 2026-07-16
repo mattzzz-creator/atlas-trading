@@ -13,13 +13,13 @@ from datetime import datetime, timedelta
 BN_URL = "https://api.binance.com/api/v3"
 
 MARKETS = {
-    "XAUUSD": {"label":"XAU/USD",  "yf":"GC=F",    "source":"yfinance", "pip":0.10,  "sl_pips":8,  "category":"Forex"},
-    "EURUSD": {"label":"EUR/USD",  "yf":"EURUSD=X", "source":"yfinance", "pip":0.0001,"sl_pips":5,  "category":"Forex"},
-    "GBPJPY": {"label":"GBP/JPY",  "yf":"GBPJPY=X", "source":"yfinance", "pip":0.01,  "sl_pips":8,  "category":"Forex"},
-    "SPX500": {"label":"S&P 500",  "yf":"^GSPC",    "source":"yfinance", "pip":0.10,  "sl_pips":10, "category":"Stocks"},
-    "NASDAQ": {"label":"Nasdaq",   "yf":"^IXIC",    "source":"yfinance", "pip":0.10,  "sl_pips":15, "category":"Stocks"},
-    "BTCUSDT":{"label":"BTC/USDT", "symbol":"BTCUSDT","source":"binance", "pip":1.0,   "sl_pips":50, "category":"Crypto"},
-    "ETHUSDT":{"label":"ETH/USDT", "symbol":"ETHUSDT","source":"binance", "pip":0.10,  "sl_pips":10, "category":"Crypto"},
+    "XAUUSD": {"label":"XAU/USD",  "yf":"GC=F",    "source":"yfinance", "pip":0.10,  "sl_pips":30, "category":"Forex"},
+    "EURUSD": {"label":"EUR/USD",  "yf":"EURUSD=X", "source":"yfinance", "pip":0.0001,"sl_pips":20, "category":"Forex"},
+    "GBPJPY": {"label":"GBP/JPY",  "yf":"GBPJPY=X", "source":"yfinance", "pip":0.01,  "sl_pips":25, "category":"Forex"},
+    "SPX500": {"label":"S&P 500",  "yf":"^GSPC",    "source":"yfinance", "pip":0.10,  "sl_pips":50, "category":"Stocks"},
+    "NASDAQ": {"label":"Nasdaq",   "yf":"^IXIC",    "source":"yfinance", "pip":0.10,  "sl_pips":80, "category":"Stocks"},
+    "BTCUSDT":{"label":"BTC/USDT", "symbol":"BTCUSDT","source":"binance", "pip":1.0,   "sl_pips":200,"category":"Crypto"},
+    "ETHUSDT":{"label":"ETH/USDT", "symbol":"ETHUSDT","source":"binance", "pip":0.10,  "sl_pips":50, "category":"Crypto"},
 }
 
 
@@ -101,7 +101,7 @@ def fetch_market(pair: str, timeframe: str = "5min") -> pd.DataFrame:
     if cfg["source"] == "yfinance":
         return fetch_yfinance(cfg["yf"], "1h", "5d")
     elif cfg["source"] == "binance":
-        return fetch_binance(cfg["symbol"], "5m")
+        return fetch_binance(cfg["symbol"], "1h")
 
     return pd.DataFrame()
 
