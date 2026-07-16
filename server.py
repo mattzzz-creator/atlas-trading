@@ -63,8 +63,10 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(morning_brief,  "cron", hour=6,  minute=45, id="morning")
     scheduler.add_job(evening_report, "cron", hour=21, minute=0,  id="evening")
     scheduler.start()
-    run_scan()
     print("✅ ATLAS online")
+    # Initial scan runs after 30 seconds to allow healthcheck to pass first
+    import threading
+    threading.Timer(30, run_scan).start()
     yield
     scheduler.shutdown()
 
@@ -125,7 +127,7 @@ def get_stats():
     return JSONResponse(content={"daily":state["daily_stats"]})
 
 # Serve frontend
-dist_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
+dist_path = "/app/dist"
 if os.path.exists(dist_path):
     app.mount("/", StaticFiles(directory=dist_path, html=True), name="static")
 else:
