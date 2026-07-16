@@ -142,3 +142,40 @@ def fetch_market(pair: str, timeframe: str = "5min") -> pd.DataFrame:
         return fetch_binance(cfg["symbol"], "5m")
 
     return pd.DataFrame()
+
+
+def get_price(pair: str) -> float:
+    """Get current price for any pair."""
+    cfg = MARKETS.get(pair.upper(), {})
+    src = cfg.get("source", "")
+
+    if src == "binance":
+        try:
+            r = requests.get(f"{BN_URL}/ticker/price",
+                params={"symbol": cfg["symbol"]}, timeout=5)
+            return float(r.json().get("price", 0))
+        except:
+            return 0.0
+
+    elif src == "av_fx":
+        data = _av_get({
+            "function":    "CURRENCY_EXCHANGE_RATE",
+            "from_currency": cfg["av_symbol"],
+            "to_currency":   cfg["av_market"],
+        })
+        try:
+            return float(data["Realtime Currency Exchange Rate"]["5. Exchange Rate"])
+        except:
+            return 0.0
+
+    elif src == "av_stock":
+        data = _av_get({
+            "function": "GLOBAL_QUOTE",
+            "symbol":   cfg["av_symbol"],
+        })
+        try:
+            return float(data["Global Quote"]["05. price"])
+        except:
+            return 0.0
+
+    return 0.0
