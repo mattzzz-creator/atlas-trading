@@ -88,7 +88,7 @@ def format_signal(sig: dict) -> str:
 def send_signal(sig: dict) -> bool:
     """Send a signal to Telegram if confidence >= 65%."""
     if sig.get("direction") == "HOLD": return False
-    if sig.get("confidence",0) < 55:   return False
+    if sig.get("confidence",0) < 65:   return False
     msg = format_signal(sig)
     if not msg: return False
     return send_message(msg)
