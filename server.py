@@ -35,7 +35,7 @@ def run_scan():
         results = scan_all()
         for sig in results:
             state["signals"][sig["pair"]] = sig
-            if sig.get("confidence",0) >= 55 and sig.get("direction") != "HOLD":
+            if sig.get("confidence",0) >= 65 and sig.get("direction") != "HOLD" and sig.get("strength") != "WEAK" and sig.get("pair") == "XAUUSD":
                 send_signal(sig)
                 state["signal_log"].append(sig)
                 state["daily_stats"]["signals"] += 1
@@ -59,7 +59,7 @@ scheduler = BackgroundScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scheduler.add_job(run_scan, "interval", minutes=2, id="scan")
+    scheduler.add_job(run_scan, "interval", minutes=3, id="scan")
     scheduler.add_job(morning_brief,  "cron", hour=6,  minute=45, id="morning")
     scheduler.add_job(evening_report, "cron", hour=21, minute=0,  id="evening")
     scheduler.start()
@@ -96,7 +96,7 @@ def get_signal(pair: str):
     sig = analyze(df, pair)
     result = asdict(sig)
     state["signals"][pair] = result
-    if result.get("confidence",0) >= 55 and result.get("direction") != "HOLD":
+    if result.get("confidence",0) >= 65 and result.get("direction") != "HOLD" and result.get("strength") != "WEAK" and result.get("pair") == "XAUUSD":
         send_signal(result)
     return JSONResponse(content=result)
 
