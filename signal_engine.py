@@ -87,7 +87,7 @@ def _get_asian_range(df):
     Get Asian session high/low (00:00-07:00 UTC).
     This is the range that London will break out of.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # tz-naive to match df["time"]
     # Today's Asian session: midnight to 7AM UTC
     asian_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     asian_end   = now.replace(hour=7, minute=0, second=0, microsecond=0)
