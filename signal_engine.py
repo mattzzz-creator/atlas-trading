@@ -178,12 +178,13 @@ def analyze_gold(df: pd.DataFrame) -> Signal:
 
     # Validate range size — not too tight, not too wide
     if asian_range_pips < 15:
-        warnings.append(f"⚠️ Asian range very tight ({asian_range_pips:.0f} pips) — false breakout risk")
+        return _hold(pair, label, category,
+            f"Asian range too tight ({asian_range_pips:.0f} pips) — high false-breakout risk, skipping", now_str)
     elif asian_range_pips > 100:
         warnings.append(f"⚠️ Asian range very wide ({asian_range_pips:.0f} pips) — reduce size")
 
     # ── BUY breakout — price breaks above Asian high ──────────
-    breakout_buffer = pip * 3  # 3 pip buffer to confirm breakout
+    breakout_buffer = pip * 5  # 5 pip buffer to confirm breakout (was 3 — too easily whipsawed)
 
     if c > asian_high + breakout_buffer:
         bull += 50
@@ -237,11 +238,13 @@ def analyze_gold(df: pd.DataFrame) -> Signal:
             f"Wait for breakout", now_str)
 
     # ── Decision ─────────────────────────────────────────────
-    if bull >= 50 and bull > bear:
+    # Raised from 50 → 60: a bare breakout (50 pts) can no longer fire alone —
+    # it now needs trend OR RSI confirmation too, cutting down whipsaw entries.
+    if bull >= 60 and bull > bear:
         direction  = "BUY"
         confidence = min(int(bull / (bull + bear + 1) * 100), 95)
         strength   = "STRONG" if bull >= 80 else "MODERATE"
-    elif bear >= 50 and bear > bull:
+    elif bear >= 60 and bear > bull:
         direction  = "SELL"
         confidence = min(int(bear / (bull + bear + 1) * 100), 95)
         strength   = "STRONG" if bear >= 80 else "MODERATE"
