@@ -5,7 +5,7 @@ Deployable to Railway, Render, or any cloud host.
 
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -125,6 +125,37 @@ async def update_outcome(body: dict):
 @app.get("/api/stats")
 def get_stats():
     return JSONResponse(content={"daily":state["daily_stats"]})
+
+# ─── Backtest — run once, download as CSV (no shell needed) ────
+_backtest_cache = {"trades": None, "candles": None}
+
+def _ensure_backtest():
+    if _backtest_cache["trades"] is None:
+        from backtest import run_backtest
+        trades, df = run_backtest(period="90d", interval="1h")
+        _backtest_cache["trades"] = trades
+        _backtest_cache["candles"] = df
+    return _backtest_cache["trades"], _backtest_cache["candles"]
+
+@app.get("/api/backtest/run")
+def api_backtest_run():
+    """Force a fresh backtest run (clears the cache first)."""
+    _backtest_cache["trades"] = None
+    _backtest_cache["candles"] = None
+    trades, df = _ensure_backtest()
+    return {"status": "done", "trades": len(trades), "candles": len(df)}
+
+@app.get("/api/backtest/trades.csv")
+def api_backtest_trades_csv():
+    trades, _ = _ensure_backtest()
+    return PlainTextResponse(trades.to_csv(index=False), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=backtest_trades.csv"})
+
+@app.get("/api/backtest/candles.csv")
+def api_backtest_candles_csv():
+    _, df = _ensure_backtest()
+    return PlainTextResponse(df.to_csv(index=False), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=backtest_candles.csv"})
 
 # Serve frontend
 dist_path = "/app/dist"
