@@ -51,9 +51,9 @@ def _atr(df, n=14):
     return tr.rolling(n).mean().iloc[-1]
 
 
-def _get_session_info():
-    """Get current session and time info."""
-    now = datetime.now(timezone.utc)
+def _get_session_info(as_of=None):
+    """Get current session and time info. Pass as_of (naive UTC datetime) to replay history."""
+    now = as_of if as_of is not None else datetime.now(timezone.utc).replace(tzinfo=None)
     h   = now.hour + now.minute / 60
 
     # Sessions in UTC
@@ -82,12 +82,13 @@ def _get_session_info():
     }
 
 
-def _get_asian_range(df):
+def _get_asian_range(df, as_of=None):
     """
     Get Asian session high/low (00:00-07:00 UTC).
     This is the range that London will break out of.
+    Pass as_of (naive UTC datetime) to replay history.
     """
-    now = datetime.now(timezone.utc).replace(tzinfo=None)  # tz-naive to match df["time"]
+    now = as_of if as_of is not None else datetime.now(timezone.utc).replace(tzinfo=None)
     # Today's Asian session: midnight to 7AM UTC
     asian_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     asian_end   = now.replace(hour=7, minute=0, second=0, microsecond=0)
@@ -130,19 +131,19 @@ def _get_h4_trend(df):
     return "NEUTRAL"
 
 
-def analyze_gold(df: pd.DataFrame) -> Signal:
-    """London Breakout analysis for Gold."""
+def analyze_gold(df: pd.DataFrame, as_of=None) -> Signal:
+    """London Breakout analysis for Gold. Pass as_of (naive UTC datetime) to replay history."""
     pair     = "XAUUSD"
     label    = "XAU/USD"
     category = "Forex"
     pip      = 0.10   # Gold pip = $0.10
 
-    now_str = datetime.now(timezone.utc).isoformat()
+    now_str = (as_of or datetime.now(timezone.utc)).isoformat()
 
     if df.empty or len(df) < 30:
         return _hold(pair, label, category, "Not enough data", now_str)
 
-    session = _get_session_info()
+    session = _get_session_info(as_of)
     close   = df["close"]
     high    = df["high"]
     low     = df["low"]
@@ -153,7 +154,7 @@ def analyze_gold(df: pd.DataFrame) -> Signal:
     trend = _get_h4_trend(df)
 
     # Get Asian range
-    asian_high, asian_low, asian_range = _get_asian_range(df)
+    asian_high, asian_low, asian_range = _get_asian_range(df, as_of)
 
     # ── Not London session — show setup info ─────────────────
     if not session["in_london"] and not session["in_ny"]:
