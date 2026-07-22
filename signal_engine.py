@@ -352,7 +352,9 @@ def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
     crossed_down = ef_p >= es_p and ef < es
 
     # ── Requirement 2: minimum trend conviction — reject flat/choppy EMAs ──
-    if separation_pips < 2.0 and not (crossed_up or crossed_down):
+    # Tightened: 2 -> 4 pips, and no longer waived just because the cross is fresh —
+    # a fresh cross on a near-flat EMA pair was the main source of losing scalps.
+    if separation_pips < 4.0:
         return _hold(pair, label, category,
             f"EMAs too flat ({separation_pips:.1f} pips apart) — no clear trend", now_str)
 
@@ -368,25 +370,27 @@ def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
     elif ef < es:
         bear += 15
 
-    if cr > 50 and cr > cr_prev:
-        bull += 25; reasons.append(f"📈 RSI {cr:.0f} above 50 and rising — momentum confirms")
-    if cr < 50 and cr < cr_prev:
-        bear += 25; reasons.append(f"📉 RSI {cr:.0f} below 50 and falling — momentum confirms")
+    # Tightened: require RSI clearly past the midline (55/45), not just barely over 50 —
+    # weak momentum right at 50 was confirming crosses that had no real push behind them.
+    if cr > 55 and cr > cr_prev:
+        bull += 25; reasons.append(f"📈 RSI {cr:.0f} above 55 and rising — momentum confirms")
+    if cr < 45 and cr < cr_prev:
+        bear += 25; reasons.append(f"📉 RSI {cr:.0f} below 45 and falling — momentum confirms")
 
     if c > ef > es:
         bull += 20; reasons.append("✅ Price above both EMAs — trend aligned")
     if c < ef < es:
         bear += 20; reasons.append("✅ Price below both EMAs — trend aligned")
 
-    if separation_pips >= 4:
+    if separation_pips >= 6:
         bull += 10 if ef > es else 0
         bear += 10 if ef < es else 0
 
     # ── Decision — needs a fresh cross AND RSI confirmation, not either alone ──
-    if bull >= 65 and bull > bear and crossed_up and cr > 50:
+    if bull >= 65 and bull > bear and crossed_up and cr > 55:
         direction, confidence = "BUY", min(bull, 95)
         strength = "STRONG" if bull >= 85 else "MODERATE"
-    elif bear >= 65 and bear > bull and crossed_down and cr < 50:
+    elif bear >= 65 and bear > bull and crossed_down and cr < 45:
         direction, confidence = "SELL", min(bear, 95)
         strength = "STRONG" if bear >= 85 else "MODERATE"
     else:
