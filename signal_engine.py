@@ -440,6 +440,135 @@ def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
     )
 
 
+def analyze_meanrev(df: pd.DataFrame, as_of=None) -> Signal:
+    """
+    Bollinger Band + RSI mean-reversion scalp for EUR/USD.
+    Fades price back to the mean after a confirmed reversal from a band
+    extreme — the opposite idea from the momentum scalp. Stop sits just
+    beyond the actual extreme touched (not a fixed distance), target is
+    the mean itself — designed to minimize loss size per trade versus a
+    fixed-pip system, since risk scales with how far price actually
+    overextended rather than a one-size-fits-all number.
+    """
+    pair     = "EURUSD"
+    label    = "EUR/USD"
+    category = "Forex"
+    pip      = 0.0001
+
+    now_str = (as_of or datetime.now(timezone.utc)).isoformat()
+
+    if df.empty or len(df) < 25:
+        return _hold(pair, label, category, "Not enough data", now_str)
+
+    now = as_of if as_of is not None else datetime.now(timezone.utc).replace(tzinfo=None)
+    hour = now.hour + now.minute / 60
+
+    # ── Requirement 1: active session only ──────────────────────
+    if not (7 <= hour < 16):
+        return _hold(pair, label, category,
+            f"Outside London/NY session ({hour:.1f}h UTC)", now_str)
+
+    close = df["close"]
+    low   = df["low"]
+    high  = df["high"]
+    c     = float(close.iloc[-1])
+
+    mid, upper, lower = _bollinger(close, 20, 2)
+    rsi = _rsi(close, 14)
+
+    if pd.isna(lower.iloc[-2]) or pd.isna(rsi.iloc[-2]):
+        return _hold(pair, label, category, "Indicators not ready", now_str)
+
+    band_width_pips = (upper.iloc[-1] - lower.iloc[-1]) / pip
+
+    # ── Requirement 2: real volatility — reject dead-flat bands ──
+    if band_width_pips < 15:
+        return _hold(pair, label, category,
+            f"Bands too narrow ({band_width_pips:.1f} pips) — no real range to fade", now_str)
+
+    prev_low, prev_high   = float(low.iloc[-2]), float(high.iloc[-2])
+    prev_close            = float(close.iloc[-2])
+    prev_lower, prev_upper = float(lower.iloc[-2]), float(upper.iloc[-2])
+    cr, cr_prev            = float(rsi.iloc[-1]), float(rsi.iloc[-2])
+    mean_price              = float(mid.iloc[-1])
+
+    # Touched below lower band on the PREVIOUS candle, and current close reclaims back inside
+    touched_low  = prev_low <= prev_lower
+    reclaim_up   = touched_low and c > float(lower.iloc[-1])
+    touched_high = prev_high >= prev_upper
+    reclaim_down = touched_high and c < float(upper.iloc[-1])
+
+    reasons, warnings = [], []
+    bull = bear = 0
+
+    if reclaim_up:
+        bull += 50; reasons.append("🟢 Price touched lower band and reclaimed back inside — reversal confirmed")
+    if reclaim_down:
+        bear += 50; reasons.append("🔴 Price touched upper band and reclaimed back inside — reversal confirmed")
+
+    if cr_prev < 30 and cr > cr_prev:
+        bull += 30; reasons.append(f"📈 RSI was oversold ({cr_prev:.0f}) and turning up")
+    if cr_prev > 70 and cr < cr_prev:
+        bear += 30; reasons.append(f"📉 RSI was overbought ({cr_prev:.0f}) and turning down")
+
+    if band_width_pips >= 25:
+        bull += 5; bear += 5
+
+    if bull < 65 and bear < 65:
+        return _hold(pair, label, category,
+            "No confirmed band-extreme reversal with RSI agreement — waiting", now_str)
+
+    direction  = "BUY" if bull > bear else "SELL"
+    confidence = min(max(bull, bear), 95)
+    strength   = "STRONG" if confidence >= 85 else "MODERATE"
+
+    entry = round(c, 5)
+    BUFFER = pip * 3  # a few pips beyond the actual extreme, not a fixed system-wide stop
+
+    if direction == "BUY":
+        sl  = round(prev_low - BUFFER, 5)
+        tp1 = round(mean_price, 5)
+        tp2 = round(float(upper.iloc[-1]), 5)  # stretch target: opposite band
+    else:
+        sl  = round(prev_high + BUFFER, 5)
+        tp1 = round(mean_price, 5)
+        tp2 = round(float(lower.iloc[-1]), 5)
+
+    risk   = abs(entry - sl)
+    reward = abs(tp1 - entry)
+    rr     = round(reward / risk, 2) if risk > 0 else 0
+
+    # ── Requirement: reject poor reward-to-risk setups — price already too close to the mean ──
+    if rr < 1.2:
+        return _hold(pair, label, category,
+            f"Reward too small vs risk (1:{rr}) — price already near the mean", now_str)
+
+    sl_p  = round(risk / pip, 1)
+    tp1_p = round(reward / pip, 1)
+
+    action = (
+        f"{direction} EUR/USD at {entry:.5f} | "
+        f"SL: {sl:.5f} ({sl_p} pips) | "
+        f"TP1 (mean): {tp1:.5f} ({tp1_p} pips) | "
+        f"RR: 1:{rr} | RSI: {cr:.0f} | Band width: {band_width_pips:.1f} pips"
+    )
+
+    return Signal(
+        pair=pair, label=label, category=category,
+        direction=direction, strength=strength, confidence=confidence,
+        entry=entry, stop_loss=sl,
+        take_profit_1=tp1, take_profit_2=tp2,
+        sl_pips=sl_p, tp1_pips=tp1_p, rr=rr,
+        reasons=reasons[:4], warnings=warnings,
+        indicators={
+            "rsi": round(cr, 1), "band_mid": round(mean_price, 5),
+            "band_width_pips": round(band_width_pips, 1),
+        },
+        action=action,
+        timestamp=now_str,
+    )
+
+
 def analyze(df: pd.DataFrame, pair: str) -> Signal:
     """Route all pairs — only Gold gets full analysis."""
     now_str = datetime.now(timezone.utc).isoformat()
@@ -455,6 +584,11 @@ def analyze(df: pd.DataFrame, pair: str) -> Signal:
     # All other pairs — skip for now
     return _hold(pair, label, cat, "Not enabled — only Gold + EUR/USD scalp active", now_str)
 
+
+def _bollinger(s, n=20, k=2):
+    sma = s.rolling(n).mean()
+    std = s.rolling(n).std()
+    return sma, sma + k*std, sma - k*std  # mid, upper, lower
 
 def _hold(pair, label, category, reason, ts):
     return Signal(
