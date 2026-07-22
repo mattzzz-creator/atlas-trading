@@ -99,7 +99,12 @@ def fetch_market(pair: str, timeframe: str = "5min") -> pd.DataFrame:
         return pd.DataFrame()
 
     if cfg["source"] == "yfinance":
-        return fetch_yfinance(cfg["yf"], "1h", "5d")
+        # Map our timeframe names to Yahoo's interval codes + a sane lookback period
+        interval_map = {"1min":"1m", "5min":"5m", "15min":"15m", "1h":"1h", "1d":"1d"}
+        period_map   = {"1min":"5d", "5min":"5d", "15min":"5d", "1h":"5d", "1d":"60d"}
+        yf_interval = interval_map.get(timeframe, "1h")
+        yf_period   = period_map.get(timeframe, "5d")
+        return fetch_yfinance(cfg["yf"], yf_interval, yf_period)
     elif cfg["source"] == "binance":
         return fetch_binance(cfg["symbol"], "1h")
 
