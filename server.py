@@ -35,7 +35,7 @@ def run_scan():
         results = scan_all()
         for sig in results:
             state["signals"][sig["pair"]] = sig
-            if sig.get("confidence",0) >= 65 and sig.get("direction") != "HOLD" and sig.get("strength") != "WEAK" and sig.get("pair") == "XAUUSD":
+            if sig.get("confidence",0) >= 65 and sig.get("direction") != "HOLD" and sig.get("strength") != "WEAK" and sig.get("pair") in ("XAUUSD","EURUSD"):
                 send_signal(sig)
                 state["signal_log"].append(sig)
                 state["daily_stats"]["signals"] += 1
@@ -96,7 +96,7 @@ def get_signal(pair: str):
     sig = analyze(df, pair)
     result = asdict(sig)
     state["signals"][pair] = result
-    if result.get("confidence",0) >= 65 and result.get("direction") != "HOLD" and result.get("strength") != "WEAK" and result.get("pair") == "XAUUSD":
+    if result.get("confidence",0) >= 65 and result.get("direction") != "HOLD" and result.get("strength") != "WEAK" and result.get("pair") in ("XAUUSD","EURUSD"):
         send_signal(result)
     return JSONResponse(content=result)
 
@@ -127,33 +127,38 @@ def get_stats():
     return JSONResponse(content={"daily":state["daily_stats"]})
 
 # ─── Backtest — run once, download as CSV (no shell needed) ────
-_backtest_cache = {}  # keyed by period string, e.g. "90d" -> (trades, candles)
+_backtest_cache = {}  # keyed by (strategy, period) -> (trades, candles)
 
-def _ensure_backtest(period: str = "90d"):
-    if period not in _backtest_cache:
+def _ensure_backtest(strategy: str = "gold", period: str = None):
+    if period is None:
+        period = "90d" if strategy == "gold" else "30d"  # 5m data has a shorter Yahoo lookback
+    interval = "1h" if strategy == "gold" else "5m"
+    key = (strategy, period)
+    if key not in _backtest_cache:
         from backtest import run_backtest
-        trades, df = run_backtest(period=period, interval="1h")
-        _backtest_cache[period] = (trades, df)
-    return _backtest_cache[period]
+        trades, df = run_backtest(strategy=strategy, period=period, interval=interval)
+        _backtest_cache[key] = (trades, df)
+    return _backtest_cache[key]
 
 @app.get("/api/backtest/run")
-def api_backtest_run(period: str = "90d"):
-    """Force a fresh backtest run for this period (clears its cache first)."""
-    _backtest_cache.pop(period, None)
-    trades, df = _ensure_backtest(period)
-    return {"status": "done", "period": period, "trades": len(trades), "candles": len(df)}
+def api_backtest_run(strategy: str = "gold", period: str = None):
+    """Force a fresh backtest run for this strategy/period (clears its cache first)."""
+    key = (strategy, period or ("90d" if strategy=="gold" else "30d"))
+    _backtest_cache.pop(key, None)
+    trades, df = _ensure_backtest(strategy, period)
+    return {"status": "done", "strategy": strategy, "period": key[1], "trades": len(trades), "candles": len(df)}
 
 @app.get("/api/backtest/trades.csv")
-def api_backtest_trades_csv(period: str = "90d"):
-    trades, _ = _ensure_backtest(period)
+def api_backtest_trades_csv(strategy: str = "gold", period: str = None):
+    trades, _ = _ensure_backtest(strategy, period)
     return PlainTextResponse(trades.to_csv(index=False), media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=backtest_trades.csv"})
+        headers={"Content-Disposition": f"attachment; filename=backtest_trades_{strategy}.csv"})
 
 @app.get("/api/backtest/candles.csv")
-def api_backtest_candles_csv(period: str = "90d"):
-    _, df = _ensure_backtest(period)
+def api_backtest_candles_csv(strategy: str = "gold", period: str = None):
+    _, df = _ensure_backtest(strategy, period)
     return PlainTextResponse(df.to_csv(index=False), media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=backtest_candles.csv"})
+        headers={"Content-Disposition": f"attachment; filename=backtest_candles_{strategy}.csv"})
 
 # Serve frontend
 dist_path = "/app/dist"
