@@ -131,7 +131,7 @@ _backtest_cache = {}  # keyed by (strategy, period) -> (trades, candles)
 
 def _ensure_backtest(strategy: str = "gold", period: str = None):
     if period is None:
-        period = "90d" if strategy == "gold" else "30d"  # 5m data has a shorter Yahoo lookback
+        period = "90d" if strategy == "gold" else "60d"  # 5m data's Yahoo lookback limit
     interval = "1h" if strategy == "gold" else "5m"
     key = (strategy, period)
     if key not in _backtest_cache:
