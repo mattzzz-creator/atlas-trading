@@ -307,6 +307,135 @@ def analyze_gold(df: pd.DataFrame, as_of=None) -> Signal:
     )
 
 
+def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
+    """
+    EMA/RSI momentum scalp for EUR/USD.
+    Fast EMA(9)/EMA(21) fresh crossover + RSI(14) momentum confirmation +
+    price alignment + London/NY session filter + minimum trend-conviction filter.
+    Fixed tight SL (15 pips) sized to fit a small account, RR 1:1.5.
+    Designed for frequent small trades — NOT one-per-session like gold.
+    """
+    pair     = "EURUSD"
+    label    = "EUR/USD"
+    category = "Forex"
+    pip      = 0.0001
+
+    now_str = (as_of or datetime.now(timezone.utc)).isoformat()
+
+    if df.empty or len(df) < 30:
+        return _hold(pair, label, category, "Not enough data", now_str)
+
+    now = as_of if as_of is not None else datetime.now(timezone.utc).replace(tzinfo=None)
+    hour = now.hour + now.minute / 60
+
+    # ── Requirement 1: active session only (London through NY, ~07:00-16:00 UTC) ──
+    if not (7 <= hour < 16):
+        return _hold(pair, label, category,
+            f"Outside London/NY session ({hour:.1f}h UTC) — spreads too wide / low liquidity", now_str)
+
+    close = df["close"]
+    c     = float(close.iloc[-1])
+
+    ema_fast = _ema(close, 9)
+    ema_slow = _ema(close, 21)
+    rsi      = _rsi(close, 14)
+
+    if pd.isna(ema_slow.iloc[-1]) or pd.isna(rsi.iloc[-1]) or pd.isna(rsi.iloc[-2]):
+        return _hold(pair, label, category, "Indicators not ready", now_str)
+
+    ef, es   = float(ema_fast.iloc[-1]), float(ema_slow.iloc[-1])
+    ef_p, es_p = float(ema_fast.iloc[-2]), float(ema_slow.iloc[-2])
+    cr, cr_prev = float(rsi.iloc[-1]), float(rsi.iloc[-2])
+    separation_pips = abs(ef - es) / pip
+
+    crossed_up   = ef_p <= es_p and ef > es
+    crossed_down = ef_p >= es_p and ef < es
+
+    # ── Requirement 2: minimum trend conviction — reject flat/choppy EMAs ──
+    if separation_pips < 2.0 and not (crossed_up or crossed_down):
+        return _hold(pair, label, category,
+            f"EMAs too flat ({separation_pips:.1f} pips apart) — no clear trend", now_str)
+
+    reasons, warnings = [], []
+    bull = bear = 0
+
+    if crossed_up:
+        bull += 40; reasons.append(f"🟢 EMA9 crossed above EMA21 — fresh bullish momentum")
+    elif ef > es:
+        bull += 15
+    if crossed_down:
+        bear += 40; reasons.append(f"🔴 EMA9 crossed below EMA21 — fresh bearish momentum")
+    elif ef < es:
+        bear += 15
+
+    if cr > 50 and cr > cr_prev:
+        bull += 25; reasons.append(f"📈 RSI {cr:.0f} above 50 and rising — momentum confirms")
+    if cr < 50 and cr < cr_prev:
+        bear += 25; reasons.append(f"📉 RSI {cr:.0f} below 50 and falling — momentum confirms")
+
+    if c > ef > es:
+        bull += 20; reasons.append("✅ Price above both EMAs — trend aligned")
+    if c < ef < es:
+        bear += 20; reasons.append("✅ Price below both EMAs — trend aligned")
+
+    if separation_pips >= 4:
+        bull += 10 if ef > es else 0
+        bear += 10 if ef < es else 0
+
+    # ── Decision — needs a fresh cross AND RSI confirmation, not either alone ──
+    if bull >= 65 and bull > bear and crossed_up and cr > 50:
+        direction, confidence = "BUY", min(bull, 95)
+        strength = "STRONG" if bull >= 85 else "MODERATE"
+    elif bear >= 65 and bear > bull and crossed_down and cr < 50:
+        direction, confidence = "SELL", min(bear, 95)
+        strength = "STRONG" if bear >= 85 else "MODERATE"
+    else:
+        return _hold(pair, label, category,
+            "No fresh EMA cross + RSI confirmation together — waiting", now_str)
+
+    # ── Fixed tight levels sized for small accounts ─────────────
+    entry   = round(c, 5)
+    SL_PIPS = 15
+    RR      = 1.5
+    sl_dist = pip * SL_PIPS
+
+    if direction == "BUY":
+        sl  = round(entry - sl_dist, 5)
+        tp1 = round(entry + sl_dist * RR, 5)
+        tp2 = round(entry + sl_dist * RR * 1.5, 5)
+    else:
+        sl  = round(entry + sl_dist, 5)
+        tp1 = round(entry - sl_dist * RR, 5)
+        tp2 = round(entry - sl_dist * RR * 1.5, 5)
+
+    sl_p  = SL_PIPS
+    tp1_p = round(abs(tp1 - entry) / pip, 1)
+    rr    = RR
+
+    action = (
+        f"{direction} EUR/USD at {entry:.5f} | "
+        f"SL: {sl:.5f} ({sl_p} pips) | "
+        f"TP1: {tp1:.5f} ({tp1_p} pips) | "
+        f"RR: 1:{rr} | "
+        f"RSI: {cr:.0f} | EMA sep: {separation_pips:.1f} pips"
+    )
+
+    return Signal(
+        pair=pair, label=label, category=category,
+        direction=direction, strength=strength, confidence=confidence,
+        entry=entry, stop_loss=sl,
+        take_profit_1=tp1, take_profit_2=tp2,
+        sl_pips=sl_p, tp1_pips=tp1_p, rr=rr,
+        reasons=reasons[:4], warnings=warnings,
+        indicators={
+            "rsi": round(cr, 1), "ema_fast": round(ef, 5), "ema_slow": round(es, 5),
+            "separation_pips": round(separation_pips, 1),
+        },
+        action=action,
+        timestamp=now_str,
+    )
+
+
 def analyze(df: pd.DataFrame, pair: str) -> Signal:
     """Route all pairs — only Gold gets full analysis."""
     now_str = datetime.now(timezone.utc).isoformat()
@@ -316,9 +445,11 @@ def analyze(df: pd.DataFrame, pair: str) -> Signal:
 
     if pair.upper() == "XAUUSD":
         return analyze_gold(df)
+    if pair.upper() == "EURUSD":
+        return analyze_scalp(df)
 
     # All other pairs — skip for now
-    return _hold(pair, label, cat, "Gold-only mode — other pairs disabled", now_str)
+    return _hold(pair, label, cat, "Not enabled — only Gold + EUR/USD scalp active", now_str)
 
 
 def _hold(pair, label, category, reason, ts):
@@ -336,7 +467,7 @@ def _hold(pair, label, category, reason, ts):
 
 
 def scan_all() -> list[dict]:
-    """Only scan Gold."""
+    """Scan Gold (swing) + EUR/USD (scalp)."""
     results = []
     try:
         df  = fetch_market("XAUUSD", "5min")
@@ -351,12 +482,25 @@ def scan_all() -> list[dict]:
     except Exception as e:
         print(f"[ATLAS GOLD] Error: {e}")
 
+    try:
+        df  = fetch_market("EURUSD", "5min")
+        sig = analyze_scalp(df)
+        d   = asdict(sig)
+        results.append(d)
+        if sig.direction != "HOLD":
+            print(f"[ATLAS SCALP] ⚡ {sig.direction} | {sig.confidence}% | {sig.strength} | {sig.action[:60]}")
+        else:
+            r = sig.reasons[0] if sig.reasons else ""
+            print(f"[ATLAS SCALP] ⏸ {r[:80]}")
+    except Exception as e:
+        print(f"[ATLAS SCALP] Error: {e}")
+
     # Add HOLD for other pairs so dashboard shows them
-    other_pairs = ["EURUSD","GBPJPY","SPX500","NASDAQ","BTCUSDT","ETHUSDT"]
+    other_pairs = ["GBPJPY","SPX500","NASDAQ","BTCUSDT","ETHUSDT"]
     now_str = datetime.now(timezone.utc).isoformat()
     for pair in other_pairs:
         cfg = MARKETS.get(pair, {})
         results.append(asdict(_hold(pair, cfg.get("label",pair),
-            cfg.get("category","Forex"), "Gold-only mode", now_str)))
+            cfg.get("category","Forex"), "Not enabled", now_str)))
 
     return results
