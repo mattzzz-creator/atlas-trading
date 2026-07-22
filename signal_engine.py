@@ -322,8 +322,8 @@ def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
 
     now_str = (as_of or datetime.now(timezone.utc)).isoformat()
 
-    if df.empty or len(df) < 30:
-        return _hold(pair, label, category, "Not enough data", now_str)
+    if df.empty or len(df) < 210:
+        return _hold(pair, label, category, "Not enough data for trend filter (need 200+ bars)", now_str)
 
     now = as_of if as_of is not None else datetime.now(timezone.utc).replace(tzinfo=None)
     hour = now.hour + now.minute / 60
@@ -336,6 +336,23 @@ def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
     close = df["close"]
     c     = float(close.iloc[-1])
 
+    # ── Requirement: higher-timeframe trend stack — never trade against the market ──
+    # Full 20/50/100/200 SMA alignment must agree with the trade direction.
+    # If the stack isn't cleanly aligned (or the trade direction disagrees with
+    # it), the signal is rejected regardless of how strong the EMA/RSI setup
+    # looks — this is a hard veto, not a scoring bonus.
+    sma20  = close.rolling(20).mean()
+    sma50  = close.rolling(50).mean()
+    sma100 = close.rolling(100).mean()
+    sma200 = close.rolling(200).mean()
+    s20, s50, s100, s200 = float(sma20.iloc[-1]), float(sma50.iloc[-1]), float(sma100.iloc[-1]), float(sma200.iloc[-1])
+
+    bullish_trend = (s20 > s50 > s100 > s200) and (c > s20)
+    bearish_trend = (s20 < s50 < s100 < s200) and (c < s20)
+
+    if not bullish_trend and not bearish_trend:
+        return _hold(pair, label, category,
+            "No clean 20/50/100/200 trend alignment — market is mixed, staying flat", now_str)
     ema_fast = _ema(close, 9)
     ema_slow = _ema(close, 21)
     rsi      = _rsi(close, 14)
@@ -386,11 +403,17 @@ def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
         bull += 10 if ef > es else 0
         bear += 10 if ef < es else 0
 
-    # ── Decision — needs a fresh cross AND RSI confirmation, not either alone ──
+    # ── Decision — needs a fresh cross AND RSI confirmation AND matches the trend ──
     if bull >= 65 and bull > bear and crossed_up and cr > 55:
+        if not bullish_trend:
+            return _hold(pair, label, category,
+                "BUY setup found but trend is not bullish-aligned — never trade against the market", now_str)
         direction, confidence = "BUY", min(bull, 95)
         strength = "STRONG" if bull >= 85 else "MODERATE"
     elif bear >= 65 and bear > bull and crossed_down and cr < 45:
+        if not bearish_trend:
+            return _hold(pair, label, category,
+                "SELL setup found but trend is not bearish-aligned — never trade against the market", now_str)
         direction, confidence = "SELL", min(bear, 95)
         strength = "STRONG" if bear >= 85 else "MODERATE"
     else:
@@ -421,7 +444,7 @@ def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
         f"SL: {sl:.5f} ({sl_p} pips) | "
         f"TP1: {tp1:.5f} ({tp1_p} pips) | "
         f"RR: 1:{rr} | "
-        f"RSI: {cr:.0f} | EMA sep: {separation_pips:.1f} pips"
+        f"RSI: {cr:.0f} | EMA sep: {separation_pips:.1f} pips | Trend: {'BULLISH' if direction=='BUY' else 'BEARISH'} stack confirmed"
     )
 
     return Signal(
