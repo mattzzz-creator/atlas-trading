@@ -12,11 +12,12 @@ the EA).
 import pandas as pd
 from datetime import datetime, timezone
 from market_data import fetch_yfinance
-from signal_engine import analyze_gold, analyze_scalp
+from signal_engine import analyze_gold, analyze_scalp, analyze_meanrev
 
 STRATEGIES = {
-    "gold":  {"ticker": "GC=F",     "pip": 0.10,   "fn": analyze_gold},
-    "scalp": {"ticker": "EURUSD=X", "pip": 0.0001, "fn": analyze_scalp},
+    "gold":    {"ticker": "GC=F",     "pip": 0.10,   "fn": analyze_gold},
+    "scalp":   {"ticker": "EURUSD=X", "pip": 0.0001, "fn": analyze_scalp},
+    "meanrev": {"ticker": "EURUSD=X", "pip": 0.0001, "fn": analyze_meanrev},
 }
 
 
