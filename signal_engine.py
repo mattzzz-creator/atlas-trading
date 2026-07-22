@@ -463,10 +463,15 @@ def analyze_meanrev(df: pd.DataFrame, as_of=None) -> Signal:
     now = as_of if as_of is not None else datetime.now(timezone.utc).replace(tzinfo=None)
     hour = now.hour + now.minute / 60
 
-    # ── Requirement 1: active session only ──────────────────────
-    if not (7 <= hour < 16):
+    # ── Requirement 1: core London/NY overlap only ──────────────
+    # Narrowed from 07:00-16:00 -> 10:00-15:00: backtest showed the broad
+    # session edges (07-09h, 14h) underperforming the core overlap hours.
+    # This is a hypothesis from a modest sample (5-8 trades/hour) — re-test
+    # after this change to confirm it actually helps rather than just
+    # shrinking the sample.
+    if not (10 <= hour < 15):
         return _hold(pair, label, category,
-            f"Outside London/NY session ({hour:.1f}h UTC)", now_str)
+            f"Outside core overlap session ({hour:.1f}h UTC)", now_str)
 
     close = df["close"]
     low   = df["low"]
@@ -481,10 +486,17 @@ def analyze_meanrev(df: pd.DataFrame, as_of=None) -> Signal:
 
     band_width_pips = (upper.iloc[-1] - lower.iloc[-1]) / pip
 
-    # ── Requirement 2: real volatility — reject dead-flat bands ──
+    # ── Requirement 2: real volatility but not a runaway trend ──
+    # Floor unchanged (15 pips — reject dead-flat noise). New ceiling (30
+    # pips): backtest showed the "wide band" trades winning LESS often
+    # (35.3%) than tighter ones (54.5%) — a very wide band likely means
+    # price is trending hard, not ranging, so fading it fights the trend.
     if band_width_pips < 15:
         return _hold(pair, label, category,
             f"Bands too narrow ({band_width_pips:.1f} pips) — no real range to fade", now_str)
+    if band_width_pips > 30:
+        return _hold(pair, label, category,
+            f"Bands too wide ({band_width_pips:.1f} pips) — likely trending, not ranging", now_str)
 
     prev_low, prev_high   = float(low.iloc[-2]), float(high.iloc[-2])
     prev_close            = float(close.iloc[-2])
@@ -510,9 +522,6 @@ def analyze_meanrev(df: pd.DataFrame, as_of=None) -> Signal:
         bull += 30; reasons.append(f"📈 RSI was oversold ({cr_prev:.0f}) and turning up")
     if cr_prev > 70 and cr < cr_prev:
         bear += 30; reasons.append(f"📉 RSI was overbought ({cr_prev:.0f}) and turning down")
-
-    if band_width_pips >= 25:
-        bull += 5; bear += 5
 
     if bull < 65 and bear < 65:
         return _hold(pair, label, category,
