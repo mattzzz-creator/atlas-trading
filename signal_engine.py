@@ -352,9 +352,9 @@ def analyze_scalp(df: pd.DataFrame, as_of=None) -> Signal:
     crossed_down = ef_p >= es_p and ef < es
 
     # ── Requirement 2: minimum trend conviction — reject flat/choppy EMAs ──
-    # Tightened: 2 -> 4 pips, and no longer waived just because the cross is fresh —
-    # a fresh cross on a near-flat EMA pair was the main source of losing scalps.
-    if separation_pips < 4.0:
+    # A fresh cross is exempt (separation is near-zero right at the cross by
+    # definition — that's not the same thing as a flat/choppy market with no cross).
+    if separation_pips < 2.5 and not (crossed_up or crossed_down):
         return _hold(pair, label, category,
             f"EMAs too flat ({separation_pips:.1f} pips apart) — no clear trend", now_str)
 
