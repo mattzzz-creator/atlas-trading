@@ -1,28 +1,34 @@
 """
-ATLAS — Backtest for analyze_gold() (London Breakout strategy)
+ATLAS — Backtest for analyze_gold() and analyze_scalp()
 
-Walks real historical XAUUSD (GC=F) candles hour by hour, calling the
-ACTUAL production analyze_gold() function at each step with only the data
-that would have been available at that moment (no lookahead). When a
-BUY/SELL fires, simulates the fill against subsequent candles to see
-whether SL or TP1 is hit first — same as live trading (one position at a
-time, matching HasOpenTrade() in the EA).
+Walks real historical candles bar by bar, calling the ACTUAL production
+analyze function at each step with only the data that would have been
+available at that moment (no lookahead). When a BUY/SELL fires, simulates
+the fill against subsequent candles to see whether SL or TP1 is hit first —
+same as live trading (one position at a time, matching HasOpenTrade() in
+the EA).
 """
 
 import pandas as pd
 from datetime import datetime, timezone
 from market_data import fetch_yfinance
-from signal_engine import analyze_gold
+from signal_engine import analyze_gold, analyze_scalp
 
-PIP = 0.10
+STRATEGIES = {
+    "gold":  {"ticker": "GC=F",     "pip": 0.10,   "fn": analyze_gold},
+    "scalp": {"ticker": "EURUSD=X", "pip": 0.0001, "fn": analyze_scalp},
+}
 
 
-def run_backtest(period="90d", interval="1h"):
-    print(f"Fetching {period} of {interval} GC=F data from Yahoo Finance...")
-    df = fetch_yfinance("GC=F", interval, period)
+def run_backtest(strategy="gold", period="90d", interval="1h"):
+    cfg = STRATEGIES[strategy]
+    ticker, PIP, analyze_fn = cfg["ticker"], cfg["pip"], cfg["fn"]
+
+    print(f"[{strategy}] Fetching {period} of {interval} {ticker} data from Yahoo Finance...")
+    df = fetch_yfinance(ticker, interval, period)
     if df.empty:
         print("No data returned — aborting.")
-        return None
+        return None, None
     df["time"] = pd.to_datetime(df["time"]).dt.tz_localize(None)
     df = df.sort_values("time").reset_index(drop=True)
     print(f"Loaded {len(df)} candles: {df['time'].iloc[0]} -> {df['time'].iloc[-1]}")
@@ -71,7 +77,7 @@ def run_backtest(period="90d", interval="1h"):
             continue  # don't look for new signal while a trade is open — matches EA behavior
 
         # ── No open position — check for a new signal ──────────
-        sig = analyze_gold(window, as_of=as_of)
+        sig = analyze_fn(window, as_of=as_of)
         if sig.direction in ("BUY", "SELL") and sig.confidence >= MIN_CONFIDENCE and sig.strength != "WEAK":
             open_trade = {
                 "time": as_of, "dir": sig.direction,
@@ -82,12 +88,15 @@ def run_backtest(period="90d", interval="1h"):
     return pd.DataFrame(trades), df
 
 
-def report(trades: pd.DataFrame, df: pd.DataFrame):
-    df.to_csv("backtest_candles.csv", index=False)
+def report(trades: pd.DataFrame, df: pd.DataFrame, strategy="gold"):
+    candles_file = f"backtest_candles_{strategy}.csv"
+    trades_file  = f"backtest_trades_{strategy}.csv"
+
+    df.to_csv(candles_file, index=False)
     if trades.empty:
         print("\nNo trades were generated in this period.")
-        print("Candle data still saved to backtest_candles.csv for inspection.")
-        trades.to_csv("backtest_trades.csv", index=False)
+        print(f"Candle data still saved to {candles_file} for inspection.")
+        trades.to_csv(trades_file, index=False)
         return
 
     n          = len(trades)
@@ -111,7 +120,7 @@ def report(trades: pd.DataFrame, df: pd.DataFrame):
     trades_per_day = n / days
 
     print("\n" + "=" * 50)
-    print("ATLAS GOLD — BACKTEST REPORT")
+    print(f"ATLAS {strategy.upper()} — BACKTEST REPORT")
     print("=" * 50)
     print(f"Period:            {df['time'].iloc[0].date()} -> {df['time'].iloc[-1].date()}  ({days} days)")
     print(f"Total trades:      {n}")
@@ -124,12 +133,16 @@ def report(trades: pd.DataFrame, df: pd.DataFrame):
     print(f"Max drawdown:      {max_dd:.1f} pips")
     print("=" * 50)
 
-    trades.to_csv("backtest_trades.csv", index=False)
-    print("\nFull trade log saved to backtest_trades.csv")
-    print("Candle data saved to backtest_candles.csv (needed by the replay viewer)")
+    trades.to_csv(trades_file, index=False)
+    print(f"\nFull trade log saved to {trades_file}")
+    print(f"Candle data saved to {candles_file} (needed by the replay viewer)")
 
 
 if __name__ == "__main__":
-    trades, df = run_backtest(period="90d", interval="1h")
+    import sys
+    strategy = sys.argv[1] if len(sys.argv) > 1 else "gold"
+    period   = "90d" if strategy == "gold" else "30d"  # 5m data has a shorter Yahoo lookback limit
+    interval = "1h" if strategy == "gold" else "5m"
+    trades, df = run_backtest(strategy=strategy, period=period, interval=interval)
     if trades is not None:
-        report(trades, df)
+        report(trades, df, strategy=strategy)
