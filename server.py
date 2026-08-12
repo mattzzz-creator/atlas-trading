@@ -143,10 +143,62 @@ def _ensure_backtest(strategy: str = "gold", period: str = None):
 @app.get("/api/backtest/run")
 def api_backtest_run(strategy: str = "gold", period: str = None):
     """Force a fresh backtest run for this strategy/period (clears its cache first)."""
-    key = (strategy, period or ("90d" if strategy=="gold" else "30d"))
+    resolved_period = period or ("90d" if strategy == "gold" else "60d")
+    key = (strategy, resolved_period)
     _backtest_cache.pop(key, None)
-    trades, df = _ensure_backtest(strategy, period)
-    return {"status": "done", "strategy": strategy, "period": key[1], "trades": len(trades), "candles": len(df)}
+    trades, df = _ensure_backtest(strategy, resolved_period)
+    from backtest import report
+    summary = report(trades, df, strategy=strategy)
+    return {"status": "done", "strategy": strategy, "period": resolved_period,
+            "candles": len(df), **(summary or {"trades": 0, "note": "no trades generated"})}
+
+@app.get("/api/backtest/compare")
+def api_backtest_compare():
+    """
+    Ranks every strategy currently in the cache by profit factor, using
+    whatever was last run via /api/backtest/run for each. Doesn't run
+    anything new — instant, since it just reads what's already there.
+    Run /api/backtest/run?strategy=X for each strategy you want included
+    before calling this.
+    """
+    from backtest import report
+    if not _backtest_cache:
+        return {"error": "Nothing cached yet. Visit /api/backtest/run?strategy=X for each "
+                          "strategy first (gold, scalp, meanrev), then call this."}
+
+    results = []
+    for (strategy, period), (trades, df) in _backtest_cache.items():
+        summary = report(trades, df, strategy=strategy) if not trades.empty else None
+        if summary:
+            results.append({"strategy": strategy, "period": period, **summary})
+        else:
+            results.append({"strategy": strategy, "period": period, "trades": 0, "note": "no trades"})
+
+    # Rank by profit factor, treating "no trades" and infinite PF sensibly
+    def rank_key(r):
+        pf = r.get("profit_factor")
+        if pf is None:
+            return -1  # no trades or undefined PF sinks to bottom
+        return pf
+    results.sort(key=rank_key, reverse=True)
+
+    return {"ranked_by": "profit_factor (highest first)", "results": results}
+
+@app.get("/api/backtest/run-all")
+def api_backtest_run_all():
+    """
+    Convenience: runs gold, scalp, and meanrev fresh, one after another,
+    then returns the ranked comparison. WARNING: this can take several
+    minutes total and risks timing out on Render's free tier — prefer
+    running each via /api/backtest/run separately if this fails.
+    """
+    from backtest import report
+    for strategy in ("gold", "scalp", "meanrev"):
+        period = "90d" if strategy == "gold" else "60d"
+        key = (strategy, period)
+        _backtest_cache.pop(key, None)
+        _ensure_backtest(strategy, period)
+    return api_backtest_compare()
 
 @app.get("/api/backtest/trades.csv")
 def api_backtest_trades_csv(strategy: str = "gold", period: str = None):
