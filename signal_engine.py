@@ -601,6 +601,123 @@ def analyze_meanrev(df: pd.DataFrame, as_of=None) -> Signal:
     )
 
 
+def analyze_ict(df: pd.DataFrame, as_of=None) -> Signal:
+    """
+    ICT-style Liquidity Sweep + Fair Value Gap (FVG) reversal.
+    Tests the "liquidity sweep, delivery, fair value gap" setup rigorously
+    rather than trusting a marketed win-rate claim.
+
+    1. Liquidity sweep: price breaks a recent swing high/low (stop hunt)
+    2. Displacement: a strong real-bodied candle reverses hard the other way
+    3. Fair Value Gap: a 3-candle imbalance confirms institutional-style
+       follow-through in the new direction
+    Entry on the gap close, stop beyond the swept extreme, fixed 1:2 RR.
+    """
+    pair     = "EURUSD"
+    label    = "EUR/USD"
+    category = "Forex"
+    pip      = 0.0001
+
+    now_str = (as_of or datetime.now(timezone.utc)).isoformat()
+
+    LOOKBACK = 20
+    if df.empty or len(df) < LOOKBACK + 10:
+        return _hold(pair, label, category, "Not enough data", now_str)
+
+    now = as_of if as_of is not None else datetime.now(timezone.utc).replace(tzinfo=None)
+    hour = now.hour + now.minute / 60
+    if not (7 <= hour < 16):
+        return _hold(pair, label, category, f"Outside London/NY session ({hour:.1f}h UTC)", now_str)
+
+    high, low, close, open_ = df["high"], df["low"], df["close"], df["open"]
+
+    # Recent swing high/low, excluding the last 3 bars (those are the sweep+FVG candles)
+    swing_high = float(high.iloc[-(LOOKBACK+3):-3].max())
+    swing_low  = float(low.iloc[-(LOOKBACK+3):-3].min())
+
+    c1_high, c1_low = float(high.iloc[-3]), float(low.iloc[-3])
+    c2_high, c2_low = float(high.iloc[-2]), float(low.iloc[-2])
+    c2_open, c2_close = float(open_.iloc[-2]), float(close.iloc[-2])
+    c3_high, c3_low, c3_close = float(high.iloc[-1]), float(low.iloc[-1]), float(close.iloc[-1])
+
+    SWEEP_BUFFER = pip * 2
+    DISPLACEMENT_MIN = pip * 5
+
+    # ── Bullish: swept below swing low, strong up candle, bullish FVG (gap up) ──
+    swept_low     = (c1_low < swing_low - SWEEP_BUFFER) or (c2_low < swing_low - SWEEP_BUFFER)
+    displacement_up = (c2_close > c2_open) and (c2_close - c2_open) > DISPLACEMENT_MIN
+    bullish_fvg   = c1_high < c3_low  # gap: candle 3-back's high below latest candle's low
+
+    # ── Bearish: swept above swing high, strong down candle, bearish FVG (gap down) ──
+    swept_high      = (c1_high > swing_high + SWEEP_BUFFER) or (c2_high > swing_high + SWEEP_BUFFER)
+    displacement_down = (c2_close < c2_open) and (c2_open - c2_close) > DISPLACEMENT_MIN
+    bearish_fvg     = c1_low > c3_high
+
+    reasons, warnings = [], []
+    bull = bear = 0
+
+    if swept_low:
+        bull += 30; reasons.append(f"🟢 Liquidity swept below swing low {swing_low:.5f}")
+    if displacement_up:
+        bull += 25; reasons.append("🟢 Strong bullish displacement candle")
+    if bullish_fvg:
+        bull += 30; reasons.append("🟢 Bullish Fair Value Gap confirmed")
+
+    if swept_high:
+        bear += 30; reasons.append(f"🔴 Liquidity swept above swing high {swing_high:.5f}")
+    if displacement_down:
+        bear += 25; reasons.append("🔴 Strong bearish displacement candle")
+    if bearish_fvg:
+        bear += 30; reasons.append("🔴 Bearish Fair Value Gap confirmed")
+
+    # ── Requirement: all three confluences together, not any one/two alone ──
+    if bull < 85 and bear < 85:
+        return _hold(pair, label, category,
+            "No confirmed sweep + displacement + FVG together — waiting", now_str)
+
+    direction  = "BUY" if bull > bear else "SELL"
+    confidence = min(max(bull, bear), 95)
+    strength   = "STRONG" if confidence >= 85 else "MODERATE"
+
+    entry  = round(c3_close, 5)
+    BUFFER = pip * 3
+
+    if direction == "BUY":
+        sl   = round(min(c1_low, c2_low) - BUFFER, 5)
+        risk = entry - sl
+        tp1  = round(entry + risk * 2, 5)
+        tp2  = round(entry + risk * 3, 5)
+    else:
+        sl   = round(max(c1_high, c2_high) + BUFFER, 5)
+        risk = sl - entry
+        tp1  = round(entry - risk * 2, 5)
+        tp2  = round(entry - risk * 3, 5)
+
+    if risk <= 0:
+        return _hold(pair, label, category, "Invalid risk distance — skip", now_str)
+
+    sl_p  = round(abs(entry - sl) / pip, 1)
+    tp1_p = round(abs(tp1 - entry) / pip, 1)
+    rr    = 2.0
+
+    action = (
+        f"{direction} EUR/USD at {entry:.5f} | SL: {sl:.5f} ({sl_p} pips) | "
+        f"TP1: {tp1:.5f} ({tp1_p} pips) | RR: 1:{rr} | Liquidity sweep + FVG"
+    )
+
+    return Signal(
+        pair=pair, label=label, category=category,
+        direction=direction, strength=strength, confidence=confidence,
+        entry=entry, stop_loss=sl,
+        take_profit_1=tp1, take_profit_2=tp2,
+        sl_pips=sl_p, tp1_pips=tp1_p, rr=rr,
+        reasons=reasons[:4], warnings=warnings,
+        indicators={"swing_high": round(swing_high, 5), "swing_low": round(swing_low, 5)},
+        action=action,
+        timestamp=now_str,
+    )
+
+
 def analyze(df: pd.DataFrame, pair: str) -> Signal:
     """Route all pairs — only Gold gets full analysis."""
     now_str = datetime.now(timezone.utc).isoformat()
@@ -611,7 +728,7 @@ def analyze(df: pd.DataFrame, pair: str) -> Signal:
     if pair.upper() == "XAUUSD":
         return analyze_gold(df)
     if pair.upper() == "EURUSD":
-        return analyze_scalp(df)
+        return analyze_meanrev(df)
 
     # All other pairs — skip for now
     return _hold(pair, label, cat, "Not enabled — only Gold + EUR/USD scalp active", now_str)
@@ -637,40 +754,27 @@ def _hold(pair, label, category, reason, ts):
 
 
 def scan_all() -> list[dict]:
-    """Scan Gold (swing) + EUR/USD (scalp)."""
+    """Scan EUR/USD (mean-reversion) only — Gold retired from live trading."""
     results = []
     try:
-        df  = fetch_market("XAUUSD", "5min")
-        sig = analyze_gold(df)
-        d   = asdict(sig)
-        results.append(d)
-        if sig.direction != "HOLD":
-            print(f"[ATLAS GOLD] ⚡ {sig.direction} | {sig.confidence}% | {sig.strength} | {sig.action[:60]}")
-        else:
-            r = sig.reasons[0] if sig.reasons else ""
-            print(f"[ATLAS GOLD] ⏸ {r[:80]}")
-    except Exception as e:
-        print(f"[ATLAS GOLD] Error: {e}")
-
-    try:
         df  = fetch_market("EURUSD", "5min")
-        sig = analyze_scalp(df)
+        sig = analyze_meanrev(df)
         d   = asdict(sig)
         results.append(d)
         if sig.direction != "HOLD":
-            print(f"[ATLAS SCALP] ⚡ {sig.direction} | {sig.confidence}% | {sig.strength} | {sig.action[:60]}")
+            print(f"[ATLAS MEANREV] ⚡ {sig.direction} | {sig.confidence}% | {sig.strength} | {sig.action[:60]}")
         else:
             r = sig.reasons[0] if sig.reasons else ""
-            print(f"[ATLAS SCALP] ⏸ {r[:80]}")
+            print(f"[ATLAS MEANREV] ⏸ {r[:80]}")
     except Exception as e:
-        print(f"[ATLAS SCALP] Error: {e}")
+        print(f"[ATLAS MEANREV] Error: {e}")
 
-    # Add HOLD for other pairs so dashboard shows them
-    other_pairs = ["GBPJPY","SPX500","NASDAQ","BTCUSDT","ETHUSDT"]
+    # Add HOLD for other pairs (including Gold, no longer traded) so dashboard shows them
+    other_pairs = ["XAUUSD","GBPJPY","SPX500","NASDAQ","BTCUSDT","ETHUSDT"]
     now_str = datetime.now(timezone.utc).isoformat()
     for pair in other_pairs:
         cfg = MARKETS.get(pair, {})
         results.append(asdict(_hold(pair, cfg.get("label",pair),
-            cfg.get("category","Forex"), "Not enabled", now_str)))
+            cfg.get("category","Forex"), "Retired — EUR/USD focus only", now_str)))
 
     return results
