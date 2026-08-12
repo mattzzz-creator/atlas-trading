@@ -718,6 +718,127 @@ def analyze_ict(df: pd.DataFrame, as_of=None) -> Signal:
     )
 
 
+def analyze_amd(df: pd.DataFrame, as_of=None) -> Signal:
+    """
+    AMD / "Power of Three" session model.
+    1. Accumulation: Asia session (00:00-07:00 UTC) builds a range (high/low)
+    2. Manipulation: London session (07:00-12:00 UTC) sweeps ONE side of
+       that range — that sweep direction signals the fade
+    3. Distribution: NY session (12:00-16:00 UTC) is where the real move
+       happens — enter here, in the direction OPPOSITE the swept side
+    Only fires during the NY distribution window, using that day's actual
+    Asia range and London sweep — not a continuous scanner.
+    """
+    pair     = "EURUSD"
+    label    = "EUR/USD"
+    category = "Forex"
+    pip      = 0.0001
+
+    now_str = (as_of or datetime.now(timezone.utc)).isoformat()
+
+    if df.empty or len(df) < 50:
+        return _hold(pair, label, category, "Not enough data", now_str)
+
+    now = as_of if as_of is not None else datetime.now(timezone.utc).replace(tzinfo=None)
+    hour = now.hour + now.minute / 60
+
+    # ── Only trade the NY distribution window ───────────────────
+    if not (12 <= hour < 16):
+        return _hold(pair, label, category,
+            f"Outside NY distribution window ({hour:.1f}h UTC) — waiting for 12:00-16:00 UTC", now_str)
+
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    asia_start  = today_start
+    asia_end    = today_start.replace(hour=7)
+    london_start = asia_end
+    london_end   = today_start.replace(hour=12)
+
+    asia_df = df[(df["time"] >= asia_start) & (df["time"] < asia_end)]
+    london_df = df[(df["time"] >= london_start) & (df["time"] < london_end)]
+
+    if len(asia_df) < 10 or len(london_df) < 10:
+        return _hold(pair, label, category, "Not enough Asia/London session data yet today", now_str)
+
+    asia_high = float(asia_df["high"].max())
+    asia_low  = float(asia_df["low"].min())
+    asia_range_pips = (asia_high - asia_low) / pip
+
+    if asia_range_pips < 8:
+        return _hold(pair, label, category,
+            f"Asia range too tight ({asia_range_pips:.1f} pips) — no real accumulation", now_str)
+
+    # ── Manipulation: did London sweep the Asia high, low, both, or neither? ──
+    SWEEP_BUFFER = pip * 2
+    swept_high = float(london_df["high"].max()) > asia_high + SWEEP_BUFFER
+    swept_low  = float(london_df["low"].min())  < asia_low  - SWEEP_BUFFER
+
+    reasons, warnings = [], []
+    if swept_high and not swept_low:
+        direction = "SELL"
+        reasons.append(f"🔴 London swept Asia high ({asia_high:.5f}) — fading the manipulation")
+    elif swept_low and not swept_high:
+        direction = "BUY"
+        reasons.append(f"🟢 London swept Asia low ({asia_low:.5f}) — fading the manipulation")
+    else:
+        return _hold(pair, label, category,
+            "London swept both sides or neither — no clean manipulation signal", now_str)
+
+    # ── Distribution confirmation: NY price actually moving in the fade direction ──
+    close = df["close"]
+    c = float(close.iloc[-1])
+    ny_df = df[df["time"] >= london_end]
+    if ny_df.empty:
+        return _hold(pair, label, category, "NY session hasn't started yet", now_str)
+    ny_open = float(ny_df["close"].iloc[0])
+
+    if direction == "BUY" and c <= ny_open:
+        return _hold(pair, label, category, "Waiting for NY to confirm upward distribution", now_str)
+    if direction == "SELL" and c >= ny_open:
+        return _hold(pair, label, category, "Waiting for NY to confirm downward distribution", now_str)
+
+    reasons.append(f"✅ NY confirming {direction} distribution from session open {ny_open:.5f}")
+    confidence = 80
+    strength = "STRONG"
+
+    entry  = round(c, 5)
+    BUFFER = pip * 3
+    if direction == "BUY":
+        sl   = round(asia_low - BUFFER, 5)
+        risk = entry - sl
+        tp1  = round(entry + risk * 2, 5)
+        tp2  = round(entry + risk * 3, 5)
+    else:
+        sl   = round(asia_high + BUFFER, 5)
+        risk = sl - entry
+        tp1  = round(entry - risk * 2, 5)
+        tp2  = round(entry - risk * 3, 5)
+
+    if risk <= 0:
+        return _hold(pair, label, category, "Invalid risk distance — skip", now_str)
+
+    sl_p  = round(abs(entry - sl) / pip, 1)
+    tp1_p = round(abs(tp1 - entry) / pip, 1)
+    rr    = 2.0
+
+    action = (
+        f"{direction} EUR/USD at {entry:.5f} | SL: {sl:.5f} ({sl_p} pips) | "
+        f"TP1: {tp1:.5f} ({tp1_p} pips) | RR: 1:{rr} | AMD session model"
+    )
+
+    return Signal(
+        pair=pair, label=label, category=category,
+        direction=direction, strength=strength, confidence=confidence,
+        entry=entry, stop_loss=sl,
+        take_profit_1=tp1, take_profit_2=tp2,
+        sl_pips=sl_p, tp1_pips=tp1_p, rr=rr,
+        reasons=reasons[:4], warnings=warnings,
+        indicators={"asia_high": round(asia_high, 5), "asia_low": round(asia_low, 5),
+                    "asia_range_pips": round(asia_range_pips, 1)},
+        action=action,
+        timestamp=now_str,
+    )
+
+
 def analyze(df: pd.DataFrame, pair: str) -> Signal:
     """Route all pairs — only Gold gets full analysis."""
     now_str = datetime.now(timezone.utc).isoformat()
