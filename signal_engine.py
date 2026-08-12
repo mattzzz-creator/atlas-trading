@@ -743,9 +743,12 @@ def analyze_amd(df: pd.DataFrame, as_of=None) -> Signal:
     hour = now.hour + now.minute / 60
 
     # ── Only trade the NY distribution window ───────────────────
-    if not (12 <= hour < 16):
+    # Narrowed 12:00-16:00 -> 12:00-13:00: backtest showed the freshest
+    # confirmation right at NY open winning 40.0% vs 31.0% for 13:00-15:00 —
+    # later "confirmations" are more likely chasing an already-exhausted move.
+    if not (12 <= hour < 13):
         return _hold(pair, label, category,
-            f"Outside NY distribution window ({hour:.1f}h UTC) — waiting for 12:00-16:00 UTC", now_str)
+            f"Outside NY open confirmation window ({hour:.1f}h UTC) — waiting for 12:00-13:00 UTC", now_str)
 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     asia_start  = today_start
