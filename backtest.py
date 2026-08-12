@@ -13,13 +13,14 @@ import pandas as pd
 import math, random
 from datetime import datetime, timezone
 from market_data import fetch_yfinance
-from signal_engine import analyze_gold, analyze_scalp, analyze_meanrev, analyze_ict
+from signal_engine import analyze_gold, analyze_scalp, analyze_meanrev, analyze_ict, analyze_amd
 
 STRATEGIES = {
     "gold":    {"ticker": "GC=F",     "pip": 0.10,   "fn": analyze_gold},
     "scalp":   {"ticker": "EURUSD=X", "pip": 0.0001, "fn": analyze_scalp},
     "meanrev": {"ticker": "EURUSD=X", "pip": 0.0001, "fn": analyze_meanrev},
     "ict":     {"ticker": "EURUSD=X", "pip": 0.0001, "fn": analyze_ict},
+    "amd":     {"ticker": "EURUSD=X", "pip": 0.0001, "fn": analyze_amd},
 }
 
 
