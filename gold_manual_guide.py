@@ -74,6 +74,194 @@ def _on_cooldown(profile_key: str, entry_interval: str, current_bar_time) -> boo
     cooldown_td = _INTERVAL_TO_TIMEDELTA.get(entry_interval, pd.Timedelta(minutes=5)) * COOLDOWN_BARS
     return (current_bar_time - last_time) <= cooldown_td
 
+def _dxy_divergence_series(gold_df, dxy_df, atr_series):
+    """Same state machine as _dxy_divergence_signal, but records EVERY bar's
+    result instead of just the last - used for historical chart markers."""
+    n = len(gold_df)
+    buy_arr = [False] * n
+    sell_arr = [False] * n
+    if dxy_df.empty or len(dxy_df) < DXY_IMPULSE_LOOKBACK + DXY_MAX_COILED_BARS + 15:
+        return buy_arr, sell_arr
+    dxy_close = dxy_df["close"].reset_index(drop=True)
+    dxy_atr = dxy_close.diff().abs().rolling(14).mean()
+
+    m = min(len(dxy_close), n)
+    state = 0
+    impulse_start = impulse_extreme = 0.0
+    impulse_dir = 0
+    coiled = 0
+    for i in range(DXY_IMPULSE_LOOKBACK + 14, m):
+        dc = dxy_close.iloc[i]
+        dclb = dxy_close.iloc[i - DXY_IMPULSE_LOOKBACK]
+        datr = dxy_atr.iloc[i]
+        if pd.isna(datr) or datr <= 0:
+            continue
+        dmove = dc - dclb
+        dmove_atr = dmove / datr
+        gmove = gold_df["close"].iloc[i] - gold_df["close"].iloc[i - DXY_IMPULSE_LOOKBACK]
+        gatr = atr_series.iloc[i]
+        if pd.isna(gatr) or gatr <= 0:
+            continue
+        gmove_atr = gmove / gatr
+
+        if state == 0:
+            if abs(dmove_atr) >= DXY_IMPULSE_THRESH_ATR and abs(gmove_atr) <= DXY_COMPRESS_THRESH_ATR:
+                state = 1
+                impulse_dir = 1 if dmove > 0 else -1
+                impulse_start = dclb
+                impulse_extreme = dc
+                coiled = 0
+        elif state == 1:
+            coiled += 1
+            if (impulse_dir > 0 and dc > impulse_extreme) or (impulse_dir < 0 and dc < impulse_extreme):
+                impulse_extreme = dc
+            rng = abs(impulse_extreme - impulse_start)
+            retr = abs(impulse_extreme - dc)
+            retr_pct = (retr / rng * 100.0) if rng > 0 else 0.0
+            if retr_pct >= DXY_RETRACE_TRIGGER_PCT:
+                sig_dir = -impulse_dir
+                if sig_dir > 0: buy_arr[i] = True
+                else: sell_arr[i] = True
+                state = 0
+            elif coiled >= DXY_MAX_COILED_BARS:
+                state = 0
+    return buy_arr, sell_arr
+
+
+def _break_retest_series(gold_df, atr_series):
+    """Same state machine as _break_retest_signal, records every bar."""
+    c, h, l = gold_df["close"], gold_df["high"], gold_df["low"]
+    n = len(gold_df)
+    buy_arr = [False] * n
+    sell_arr = [False] * n
+    if n < BRK_LOOKBACK + 5:
+        return buy_arr, sell_arr
+    level, direction, awaiting = 0.0, 0, False
+    for i in range(BRK_LOOKBACK, n):
+        atr = atr_series.iloc[i]
+        if pd.isna(atr) or atr <= 0:
+            continue
+        recent_high = h.iloc[i-BRK_LOOKBACK:i].max()
+        recent_low = l.iloc[i-BRK_LOOKBACK:i].min()
+        if not awaiting:
+            if c.iloc[i] > recent_high:
+                level, direction, awaiting = recent_high, 1, True
+            elif c.iloc[i] < recent_low:
+                level, direction, awaiting = recent_low, -1, True
+        if awaiting and direction == 1:
+            if l.iloc[i] <= level + BRK_RETEST_TOL_ATR*atr and c.iloc[i] > level:
+                buy_arr[i] = True
+                awaiting = False
+            elif c.iloc[i] < level - BRK_RETEST_TOL_ATR*atr:
+                awaiting = False
+        if awaiting and direction == -1:
+            if h.iloc[i] >= level - BRK_RETEST_TOL_ATR*atr and c.iloc[i] < level:
+                sell_arr[i] = True
+                awaiting = False
+            elif c.iloc[i] > level + BRK_RETEST_TOL_ATR*atr:
+                awaiting = False
+    return buy_arr, sell_arr
+
+
+def _align_to(gold_df, other_df, value_series, colname="v"):
+    """Aligns a value computed on a different (higher) timeframe onto gold_df's
+    timestamps - carries forward the most recent known value at or before each
+    gold_df bar's time. Needed because htf/momentum/trend context comes from a
+    DIFFERENT timeframe's dataframe with its own row indexing."""
+    tmp = other_df[["time"]].copy()
+    tmp[colname] = value_series.values
+    merged = pd.merge_asof(gold_df[["time"]].sort_values("time"), tmp.sort_values("time"),
+                            on="time", direction="backward")
+    return merged[colname]
+
+
+def _historical_confluence(profile_key: str, max_bars: int = 300):
+    """Replays the full 5-signal confluence + trend + cooldown logic across
+    recent history, bar by bar - used to draw historical BUY/SELL markers on
+    the chart, matching what the TradingView Pine version shows naturally by
+    re-evaluating every visible bar. Returns a list of {time, direction, tier}.
+    """
+    p = PROFILES[profile_key]
+    entry_df = fetch_yfinance(GOLD_TICKER, p["entry_interval"], p["entry_period"])
+    if entry_df.empty or len(entry_df) < p["min_bars"]:
+        return []
+    entry_df = entry_df.reset_index(drop=True)
+
+    dxy_df = fetch_yfinance(DXY_TICKER, p["entry_interval"], p["entry_period"])
+    ema_htf_df = fetch_yfinance(GOLD_TICKER, p["ema_htf_interval"], p["ema_htf_period"])
+    mom_df = fetch_yfinance(GOLD_TICKER, p["mom_interval"], p["mom_period"])
+    trend_df = fetch_yfinance(GOLD_TICKER, p["trend_interval"], p["trend_period"])
+
+    atr_series = _true_range_atr(entry_df, 14)
+    if atr_series.isna().all():
+        return []
+
+    dxy_buy_arr, dxy_sell_arr = _dxy_divergence_series(entry_df, dxy_df, atr_series)
+    brk_buy_arr, brk_sell_arr = _break_retest_series(entry_df, atr_series)
+
+    htf_ema_aligned = _align_to(entry_df, ema_htf_df, _ema(ema_htf_df["close"], 20)) if not ema_htf_df.empty else pd.Series(entry_df["close"])
+    mom_ma_aligned = _align_to(entry_df, mom_df, mom_df["close"].rolling(p["mom_ma_len"]).mean()) if not mom_df.empty else entry_df["close"].rolling(p["mom_ma_len"]).mean()
+    trend_close_aligned = _align_to(entry_df, trend_df, trend_df["close"]) if not trend_df.empty else pd.Series(entry_df["close"])
+    trend_ma_aligned = _align_to(entry_df, trend_df, trend_df["close"].rolling(p["trend_ma_len"]).mean()) if not trend_df.empty else pd.Series(np.nan, index=entry_df.index)
+
+    c, o, h, l = entry_df["close"], entry_df["open"], entry_df["high"], entry_df["low"]
+    ema9, ema50 = _ema(c, FAST_LEN), _ema(c, SLOW_LEN)
+
+    n = len(entry_df)
+    start = max(60, n - max_bars)
+    markers = []
+    last_signal_i = -9999
+    for i in range(start, n):
+        atr = atr_series.iloc[i]
+        if pd.isna(atr) or atr <= 0 or i < 2:
+            continue
+
+        dxy_buy, dxy_sell = dxy_buy_arr[i], dxy_sell_arr[i]
+
+        htf_ema = htf_ema_aligned.iloc[i]
+        ema_buy = c.iloc[i] > htf_ema and htf_ema - EMA_PULLBACK_ATR*atr <= l.iloc[i] <= htf_ema + EMA_PULLBACK_ATR*atr \
+            and c.iloc[i] > o.iloc[i] and (c.iloc[i]-o.iloc[i]) >= EMA_CONT_BODY_ATR*atr and c.iloc[i] > h.iloc[i-1]
+        ema_sell = c.iloc[i] < htf_ema and htf_ema - EMA_PULLBACK_ATR*atr <= h.iloc[i] <= htf_ema + EMA_PULLBACK_ATR*atr \
+            and c.iloc[i] < o.iloc[i] and (o.iloc[i]-c.iloc[i]) >= EMA_CONT_BODY_ATR*atr and c.iloc[i] < l.iloc[i-1]
+
+        brk_buy, brk_sell = brk_buy_arr[i], brk_sell_arr[i]
+
+        mom_ma = mom_ma_aligned.iloc[i]
+        body = c.iloc[i] - o.iloc[i]
+        htf_buy = pd.notna(mom_ma) and c.iloc[i] > mom_ma and body >= IMPULSE_BODY_ATR*atr
+        htf_sell = pd.notna(mom_ma) and c.iloc[i] < mom_ma and -body >= IMPULSE_BODY_ATR*atr
+
+        e9, e50 = ema9.iloc[i], ema50.iloc[i]
+        touched_up = e9 - TOUCH_ATR*atr <= l.iloc[i] <= e9 + TOUCH_ATR*atr
+        touched_down = e9 - TOUCH_ATR*atr <= h.iloc[i] <= e9 + TOUCH_ATR*atr
+        e950_buy = e9 > e50 and c.iloc[i] > e50 and touched_up and c.iloc[i] > o.iloc[i] and c.iloc[i] > e9
+        e950_sell = e9 < e50 and c.iloc[i] < e50 and touched_down and c.iloc[i] < o.iloc[i] and c.iloc[i] < e9
+
+        buy_count = sum([dxy_buy, ema_buy, brk_buy, htf_buy, e950_buy])
+        sell_count = sum([dxy_sell, ema_sell, brk_sell, htf_sell, e950_sell])
+
+        t_ma = trend_ma_aligned.iloc[i]
+        t_close = trend_close_aligned.iloc[i]
+        trend_bias = 0
+        if pd.notna(t_ma) and pd.notna(t_close):
+            trend_bias = 1 if t_close > t_ma else (-1 if t_close < t_ma else 0)
+
+        show_buy = (trend_bias >= 0) and buy_count >= MIN_COUNT_TO_TRADE and buy_count >= sell_count
+        show_sell = (trend_bias <= 0) and sell_count >= MIN_COUNT_TO_TRADE and sell_count > buy_count
+
+        if (show_buy or show_sell) and (i - last_signal_i) > COOLDOWN_BARS:
+            count = buy_count if show_buy else sell_count
+            tier = "STRONG" if count >= 5 else "MODERATE" if count == 4 else "WATCH"
+            markers.append({
+                "time": int(entry_df["time"].iloc[i].timestamp()),
+                "price": float(c.iloc[i]),
+                "direction": "BUY" if show_buy else "SELL",
+                "tier": tier,
+            })
+            last_signal_i = i
+    return markers
+
+
 # ── Timeframe profiles ──────────────────────────────────────────────────
 # Each profile scales EVERY reference timeframe up together, not just the
 # entry candle - a "signal on H1" should use H1-relative context (daily EMA,
