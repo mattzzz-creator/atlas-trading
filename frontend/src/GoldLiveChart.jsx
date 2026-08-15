@@ -116,8 +116,9 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
       time: g.time,
       position: g.direction === 'BUY' ? 'belowBar' : 'aboveBar',
       color: g.direction === 'BUY' ? C.green : C.red,
-      shape: 'circle',
-      text: g.tier === 'STRONG' ? 'S' : g.tier === 'MODERATE' ? 'M' : 'W',
+      shape: g.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+      size: 2,
+      text: `${g.direction} ${g.tier} ${g.price.toFixed(2)}`,
     }));
 
     const allMarkers = [...setupMarkers, ...guideMarkers].sort((a, b) => a.time - b.time);
