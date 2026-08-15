@@ -161,7 +161,7 @@ def _mk_setup(row, label, bias, level):
     }
 
 
-def get_gold_chart_data(interval: str = "15m", period: str = "5d", lookback: int = 150):
+def get_gold_chart_data(interval: str = "15m", period: str = "5d", display_lookback: int = 500, analysis_lookback: int = 150):
     """Main entry point - returns candles + support/resistance + setups, ready for the frontend."""
     df = fetch_yfinance(GOLD_TICKER, interval, period)
     if df.empty or len(df) < 30:
@@ -173,14 +173,14 @@ def get_gold_chart_data(interval: str = "15m", period: str = "5d", lookback: int
     # pandas datetime (pd.to_datetime(timestamps, unit="s")) - convert to
     # Unix seconds (int) for lightweight-charts, which expects that exact format.
 
-    support, resistance = support_resistance(df, lookback=lookback)
+    support, resistance = support_resistance(df, lookback=analysis_lookback)
     setups = detect_setups(df, support, resistance)
     setups = setups[-6:]  # only the most recent - avoids on-chart label clutter
 
     candles = [
         {"time": int(r["time"].timestamp()), "open": float(r["open"]), "high": float(r["high"]),
          "low": float(r["low"]), "close": float(r["close"])}
-        for _, r in df.tail(lookback).iterrows()
+        for _, r in df.tail(display_lookback).iterrows()
     ]
 
     return {
