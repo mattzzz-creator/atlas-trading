@@ -143,9 +143,9 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
               {guideSignal.direction !== 'HOLD' ? `${guideSignal.direction} · ${guideSignal.strength}` : 'WAIT'}
             </span>
           </div>
-          {guideSignal.indicators && (
+          {guideSignal.indicators && Object.keys(guideSignal.indicators).length > 0 && (
             <div style={{ display: 'flex', gap: 14, marginBottom: 6, fontSize: 11 }}>
-              <span style={{ color: C.muted }}>Trend(H1): <span style={{ color: C.text }}>{guideSignal.indicators.trend_h1}</span></span>
+              <span style={{ color: C.muted }}>Trend: <span style={{ color: C.text }}>{guideSignal.indicators.trend}</span></span>
               <span style={{ color: C.muted }}>DXY: <span style={{ color: C.text }}>{guideSignal.indicators.dxy_move}</span></span>
             </div>
           )}
