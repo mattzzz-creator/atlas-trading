@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import GoldMultiTimeframeGrid from "./GoldMultiTimeframeGrid.jsx";
+import GoldTradingDashboard from "./GoldTradingDashboard.jsx";
 
 const API = "/api";
 const CAT_ICONS = { Forex:"💱", Stocks:"📈", Crypto:"₿" };
@@ -482,7 +482,7 @@ export default function App() {
         {signals.length>0&&<MarketBar signals={signals} />}
 
         {/* Live Gold chart with auto-detected support/resistance and setups */}
-        <GoldMultiTimeframeGrid C={C} signals={signals} />
+        <GoldTradingDashboard C={C} signals={signals} />
 
         {/* Stats row */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
