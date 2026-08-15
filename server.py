@@ -16,7 +16,7 @@ from dataclasses import asdict
 from signal_engine import scan_all, analyze, MARKETS
 from market_data import fetch_market
 from telegram_bot import send_signal, send_scan_summary, send_daily_morning, send_daily_evening
-from gold_manual_guide import scan_all_gold_guide_timeframes
+from gold_manual_guide import scan_all_gold_guide_timeframes, _historical_confluence
 from chart_analysis import get_gold_chart_data
 
 # ─── State ────────────────────────────────────────────────────
@@ -149,9 +149,21 @@ def get_stats():
     return JSONResponse(content={"daily":state["daily_stats"]})
 
 # ─── Gold live chart — candles + auto-detected support/resistance + setups ──
+_INTERVAL_TO_PROFILE = {"1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30"}
+
 @app.get("/api/chart/xauusd")
 def get_gold_chart(interval: str = "15m", period: str = "5d"):
-    return JSONResponse(content=get_gold_chart_data(interval, period))
+    data = get_gold_chart_data(interval, period)
+    profile_key = _INTERVAL_TO_PROFILE.get(interval)
+    if profile_key:
+        try:
+            data["guide_signals"] = _historical_confluence(profile_key)
+        except Exception as e:
+            print(f"[ATLAS] Historical guide signals error: {e}")
+            data["guide_signals"] = []
+    else:
+        data["guide_signals"] = []
+    return JSONResponse(content=data)
 
 # ─── Backtest — run once, download as CSV (no shell needed) ────
 _backtest_cache = {}  # keyed by (strategy, period) -> (trades, candles)
