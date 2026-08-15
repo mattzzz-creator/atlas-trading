@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import GoldLiveChart from "./GoldLiveChart.jsx";
+import GoldMultiTimeframeGrid from "./GoldMultiTimeframeGrid.jsx";
 
 const API = "/api";
-const CATEGORIES = ["All","Forex","Stocks","Crypto"];
 const CAT_ICONS = { Forex:"💱", Stocks:"📈", Crypto:"₿" };
 
 const C = {
@@ -362,7 +361,6 @@ export default function App() {
   const [scanning, setScanning]  = useState(false);
   const [online,   setOnline]    = useState(false);
   const [lastScan, setLastScan]  = useState(null);
-  const [filter,   setFilter]    = useState("All");
   const [scanCount,setScanCount] = useState(0);
 
   const fetchSignals = useCallback(async()=>{
@@ -406,9 +404,7 @@ export default function App() {
     return()=>{ clearInterval(t1); clearInterval(t2); };
   },[fetchSignals,checkHealth]);
 
-  const filtered = filter==="All"
-    ? signals
-    : signals.filter(s=>s.category===filter);
+  const filtered = signals;
 
   const activeSignals = signals.filter(s=>s.direction!=="HOLD");
 
@@ -486,7 +482,7 @@ export default function App() {
         {signals.length>0&&<MarketBar signals={signals} />}
 
         {/* Live Gold chart with auto-detected support/resistance and setups */}
-        <GoldLiveChart C={C} />
+        <GoldMultiTimeframeGrid C={C} signals={signals} />
 
         {/* Stats row */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
@@ -504,23 +500,10 @@ export default function App() {
           ))}
         </div>
 
-        {/* Category filter */}
-        <div style={{display:"flex",gap:6}}>
-          {CATEGORIES.map(cat=>(
-            <button key={cat} onClick={()=>setFilter(cat)} style={{
-              padding:"6px 14px",borderRadius:20,cursor:"pointer",
-              fontSize:11,fontWeight:600,
-              background:filter===cat?"#1e2d45":"transparent",
-              border:`1px solid ${filter===cat?C.blue+"66":C.border}`,
-              color:filter===cat?C.blue:C.muted,
-              transition:"all 0.15s",
-            }}>{cat}</button>
-          ))}
-          {lastScan&&<div style={{marginLeft:"auto",color:C.dim,fontSize:10,
-            display:"flex",alignItems:"center"}}>
-            Last scan: {new Date(lastScan).toLocaleTimeString()}
-          </div>}
-        </div>
+        {/* Last scan time - category filter removed, only Gold now */}
+        {lastScan&&<div style={{color:C.dim,fontSize:10}}>
+          Last scan: {new Date(lastScan).toLocaleTimeString()}
+        </div>}
 
         {/* Content grid */}
         <div style={{flex:1,display:"grid",gridTemplateColumns:"1fr 380px",gap:14,
