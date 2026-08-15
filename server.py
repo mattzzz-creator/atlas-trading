@@ -17,6 +17,7 @@ from signal_engine import scan_all, analyze, MARKETS
 from market_data import fetch_market
 from telegram_bot import send_signal, send_scan_summary, send_daily_morning, send_daily_evening
 from gold_manual_guide import scan_gold_manual_guide
+from chart_analysis import get_gold_chart_data
 
 # ─── State ────────────────────────────────────────────────────
 state = {
@@ -143,6 +144,11 @@ async def update_outcome(body: dict):
 @app.get("/api/stats")
 def get_stats():
     return JSONResponse(content={"daily":state["daily_stats"]})
+
+# ─── Gold live chart — candles + auto-detected support/resistance + setups ──
+@app.get("/api/chart/xauusd")
+def get_gold_chart(interval: str = "15m", period: str = "5d"):
+    return JSONResponse(content=get_gold_chart_data(interval, period))
 
 # ─── Backtest — run once, download as CSV (no shell needed) ────
 _backtest_cache = {}  # keyed by (strategy, period) -> (trades, candles)
