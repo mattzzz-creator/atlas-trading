@@ -1,5 +1,5 @@
 """
-ATLAS — Telegram Signal Bot
+ATLAS — Telegram Signal Bot (Gold-only)
 Sends BUY/SELL signals to your trading group.
 Setup: Create bot via @BotFather, add to group, get chat ID.
 """
@@ -33,78 +33,82 @@ def send_message(text: str) -> bool:
 
 
 def format_signal(sig: dict) -> str:
-    """Format a signal for Telegram."""
-    dir   = sig.get("direction","HOLD")
-    label = sig.get("label", sig.get("pair",""))
-    conf  = sig.get("confidence",0)
-    entry = sig.get("entry",0)
-    sl    = sig.get("stop_loss",0)
-    tp1   = sig.get("take_profit_1",0)
-    tp2   = sig.get("take_profit_2",0)
-    sl_p  = sig.get("sl_pips",0)
-    tp1_p = sig.get("tp1_pips",0)
-    cat   = sig.get("category","")
-    str_  = sig.get("strength","")
-    ind   = sig.get("indicators",{})
-    ts    = sig.get("timestamp","")
-    reasons = sig.get("reasons",[])
-
-    if dir == "HOLD":
+    """Format a Gold Manual Guide signal for Telegram.
+    label already includes the timeframe (e.g. "XAU/USD H1 (Manual Guide)"),
+    so direction + label together cover "which timeframe, which direction."
+    Prices use 2 decimals - correct for gold, not the 5-decimal forex format
+    this used to have."""
+    direction = sig.get("direction", "HOLD")
+    if direction == "HOLD":
         return ""
 
-    emoji = "🟢" if dir=="BUY" else "🔴"
-    cat_emoji = {"Forex":"💱","Stocks":"📈","Crypto":"₿"}.get(cat,"📊")
+    label = sig.get("label", sig.get("pair", ""))
+    strength = sig.get("strength", "")
+    conf = sig.get("confidence", 0)
+    entry = sig.get("entry", 0)
+    sl = sig.get("stop_loss", 0)
+    tp = sig.get("take_profit_1", 0)
+    ind = sig.get("indicators", {})
+    reasons = sig.get("reasons", [])
+    ts = sig.get("timestamp", "")
 
-    reasons_text = "\n".join(f"  • {r}" for r in reasons[:3])
+    emoji = "🟢" if direction == "BUY" else "🔴"
 
     time_str = ""
     try:
-        dt = datetime.fromisoformat(ts.replace("Z","+00:00"))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         time_str = dt.strftime("%H:%M UTC")
-    except: pass
+    except Exception:
+        pass
+
+    context_line = ""
+    if ind.get("trend") or ind.get("dxy_move"):
+        context_line = f"📊 Trend: {ind.get('trend','—')} | DXY: {ind.get('dxy_move','—')}\n\n"
+
+    reasons_text = "\n".join(f"  • {r}" for r in reasons[:3])
 
     msg = f"""
-{emoji} <b>ATLAS SIGNAL — {dir}</b> {cat_emoji}
+{emoji} <b>ATLAS GOLD SIGNAL — {direction}</b>
 
-<b>{label}</b> | {str_} | {conf}% confidence
+<b>{label}</b> | {strength} | {conf}% confidence
 
-💰 <b>Entry:</b>  <code>{entry:.5f}</code>
-🛑 <b>Stop Loss:</b> <code>{sl:.5f}</code> ({sl_p} pips)
-✅ <b>TP1:</b>   <code>{tp1:.5f}</code> ({tp1_p} pips)
-🎯 <b>TP2:</b>   <code>{tp2:.5f}</code>
+💰 <b>Entry:</b>  <code>{entry:.2f}</code>
+🛑 <b>Stop Loss:</b> <code>{sl:.2f}</code>
+🎯 <b>Take Profit:</b> <code>{tp:.2f}</code>
 
-📊 RSI: {ind.get("rsi","—")} | EMA: {"↑" if ind.get("ema9",0)>ind.get("ema21",0) else "↓"}
-
-<b>Why:</b>
+{context_line}<b>Why:</b>
 {reasons_text}
 
 ⏰ {time_str}
 ━━━━━━━━━━━━━━━━
-<i>ATLAS Trading System</i>
+<i>ATLAS Trading System — apply your own TA before entering</i>
 """.strip()
     return msg
 
 
 def send_signal(sig: dict) -> bool:
-    """Send a signal to Telegram if confidence >= 65%."""
-    if sig.get("direction") == "HOLD": return False
-    if sig.get("confidence",0) < 65:   return False
+    """Send a signal to Telegram if it's an actual candidate (not HOLD).
+    Gold Guide signals already carry their own tier gating (WATCH/MODERATE/
+    STRONG at 3+/5 confluence) - no extra confidence filter needed here."""
+    if sig.get("direction") == "HOLD":
+        return False
     msg = format_signal(sig)
-    if not msg: return False
+    if not msg:
+        return False
     return send_message(msg)
 
 
 def send_scan_summary(signals: list) -> bool:
-    """Send a summary of all signals after a full scan."""
+    """Send a summary of all active Gold Guide signals after a scan."""
     active = [s for s in signals if s.get("direction") != "HOLD"]
     if not active:
-        return send_message("⏸ <b>ATLAS SCAN COMPLETE</b>\n\nNo active signals right now. Markets are ranging. Wait for a clearer setup.")
+        return send_message("⏸ <b>ATLAS SCAN COMPLETE</b>\n\nNo active Gold signals right now.")
 
     lines = ["⚡ <b>ATLAS SCAN COMPLETE</b>\n"]
     for s in active:
-        d = s["direction"]; c = s["confidence"]
-        e = "🟢" if d=="BUY" else "🔴"
-        lines.append(f"{e} <b>{s['label']}</b> — {d} ({c}%)")
+        d, c = s["direction"], s.get("strength", "")
+        e = "🟢" if d == "BUY" else "🔴"
+        lines.append(f"{e} <b>{s['label']}</b> — {d} ({c})")
 
     lines.append(f"\n{len(active)} signal(s) detected. Check dashboard for full details.")
     return send_message("\n".join(lines))
@@ -115,15 +119,14 @@ def send_daily_morning():
     msg = """
 🌅 <b>ATLAS MORNING BRIEFING</b>
 
-Good morning traders! Markets are opening.
+Good morning! Gold markets are opening.
 
 📋 <b>Today's Focus:</b>
 • London session: 7:00–16:00 UTC
-• New York session: 12:00–21:00 UTC  
+• New York session: 12:00–21:00 UTC
 • Highest probability: 12:00–16:00 UTC overlap
 
-⚡ ATLAS is scanning all markets every 5 minutes.
-You will be alerted for every signal 65%+ confidence.
+⚡ ATLAS scans Gold across M1/M5/M15/M30 every 3 minutes.
 
 💡 <b>Reminder:</b> Never risk more than 1-2% per trade.
 Set your stop loss BEFORE entering.
@@ -135,8 +138,8 @@ Good luck today. — ATLAS
 
 def send_daily_evening(signals_today: int, wins: int, losses: int):
     """Evening performance summary."""
-    wr = round(wins/(wins+losses)*100,1) if (wins+losses)>0 else 0
-    verdict = "✅ Good day!" if wr>=50 else "⚠️ Tough day — review your trades."
+    wr = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0
+    verdict = "✅ Good day!" if wr >= 50 else "⚠️ Tough day — review your trades."
     msg = f"""
 🌙 <b>ATLAS EVENING REPORT</b>
 
