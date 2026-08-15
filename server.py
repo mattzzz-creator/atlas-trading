@@ -16,7 +16,7 @@ from dataclasses import asdict
 from signal_engine import scan_all, analyze, MARKETS
 from market_data import fetch_market
 from telegram_bot import send_signal, send_scan_summary, send_daily_morning, send_daily_evening
-from gold_manual_guide import scan_gold_manual_guide
+from gold_manual_guide import scan_all_gold_guide_timeframes
 from chart_analysis import get_gold_chart_data
 
 # ─── State ────────────────────────────────────────────────────
@@ -45,19 +45,21 @@ def run_scan():
                 if len(state["signal_log"]) > 100:
                     state["signal_log"] = state["signal_log"][-100:]
 
-        # Gold Manual Trading Guide - own key (XAUUSD-GUIDE) so it doesn't
-        # overwrite the regular XAUUSD entry. Sends whenever it has a real
-        # candidate - its own tier + trend gating already applies, no need
-        # to also filter it through the generic confidence threshold.
+        # Gold Manual Trading Guide - FOUR independent signals, one per
+        # timeframe (M5/M15/H1/D1), each with its own pair key so they show
+        # up as separate cards and can drive separate chart panels. Each
+        # sends whenever IT has a real candidate - own tier + trend gating
+        # already applies per timeframe, no generic confidence filter needed.
         try:
-            guide_sig = asdict(scan_gold_manual_guide())
-            state["signals"][guide_sig["pair"]] = guide_sig
-            if guide_sig.get("direction") != "HOLD":
-                send_signal(guide_sig)
-                state["signal_log"].append(guide_sig)
-                state["daily_stats"]["signals"] += 1
-                if len(state["signal_log"]) > 100:
-                    state["signal_log"] = state["signal_log"][-100:]
+            for guide_sig_obj in scan_all_gold_guide_timeframes():
+                guide_sig = asdict(guide_sig_obj)
+                state["signals"][guide_sig["pair"]] = guide_sig
+                if guide_sig.get("direction") != "HOLD":
+                    send_signal(guide_sig)
+                    state["signal_log"].append(guide_sig)
+                    state["daily_stats"]["signals"] += 1
+                    if len(state["signal_log"]) > 100:
+                        state["signal_log"] = state["signal_log"][-100:]
         except Exception as e:
             print(f"[ATLAS] Gold Manual Guide scan error: {e}")
 
