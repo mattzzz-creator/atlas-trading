@@ -358,5 +358,16 @@ def scan_gold_manual_guide(profile_key: str = "M5") -> Signal:
 
 
 def scan_all_gold_guide_timeframes():
-    """Returns all 4 timeframe signals as a list, for the scan loop to iterate."""
-    return [scan_gold_manual_guide(k) for k in PROFILES.keys()]
+    """Returns all 4 timeframe signals as a list, for the scan loop to iterate.
+    Each profile is isolated - one failing (e.g. M1's tight 7-day data window
+    hitting a bad Yahoo response) must not take the other 3 down with it."""
+    results = []
+    for k in PROFILES.keys():
+        try:
+            results.append(scan_gold_manual_guide(k))
+        except Exception as e:
+            p = PROFILES[k]
+            print(f"[GoldGuide] {k} scan error: {e}")
+            results.append(_hold(p["pair"], f"XAU/USD {p['tf_label']} (Manual Guide)", "Forex",
+                                  f"Scan error: {e}", datetime.now(timezone.utc).isoformat()))
+    return results
