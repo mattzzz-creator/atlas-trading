@@ -1,7 +1,11 @@
 """
 ATLAS — Market Data Engine v3
 Uses yfinance (Yahoo Finance) — completely free, no API key, no rate limits.
-Crypto: Binance public API — free, no key needed.
+
+Trimmed to Gold only per request - other markets (EUR/USD, GBP/JPY, S&P 500,
+Nasdaq, BTC/USDT, ETH/USDT) removed from MARKETS so scan_all() only scans
+XAU/USD. Binance fetch code left in place (unused now, harmless) in case
+crypto ever comes back.
 """
 
 import requests
@@ -14,12 +18,6 @@ BN_URL = "https://api.binance.com/api/v3"
 
 MARKETS = {
     "XAUUSD": {"label":"XAU/USD",  "yf":"GC=F",    "source":"yfinance", "pip":0.10,  "sl_pips":30, "category":"Forex"},
-    "EURUSD": {"label":"EUR/USD",  "yf":"EURUSD=X", "source":"yfinance", "pip":0.0001,"sl_pips":20, "category":"Forex"},
-    "GBPJPY": {"label":"GBP/JPY",  "yf":"GBPJPY=X", "source":"yfinance", "pip":0.01,  "sl_pips":25, "category":"Forex"},
-    "SPX500": {"label":"S&P 500",  "yf":"^GSPC",    "source":"yfinance", "pip":0.10,  "sl_pips":50, "category":"Stocks"},
-    "NASDAQ": {"label":"Nasdaq",   "yf":"^IXIC",    "source":"yfinance", "pip":0.10,  "sl_pips":80, "category":"Stocks"},
-    "BTCUSDT":{"label":"BTC/USDT", "symbol":"BTCUSDT","source":"binance", "pip":1.0,   "sl_pips":200,"category":"Crypto"},
-    "ETHUSDT":{"label":"ETH/USDT", "symbol":"ETHUSDT","source":"binance", "pip":0.10,  "sl_pips":50, "category":"Crypto"},
 }
 
 
@@ -70,7 +68,7 @@ def fetch_yfinance(ticker: str, interval: str = "5m", period: str = "1d") -> pd.
 
 
 def fetch_binance(symbol: str, interval: str = "5m", bars: int = 100) -> pd.DataFrame:
-    """Fetch crypto from Binance — no key needed."""
+    """Fetch crypto from Binance — no key needed. Unused now MARKETS is Gold-only."""
     try:
         resp = requests.get(f"{BN_URL}/klines",
             params={"symbol": symbol, "interval": interval, "limit": bars}, timeout=10)
