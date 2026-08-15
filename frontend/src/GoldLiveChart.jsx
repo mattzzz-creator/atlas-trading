@@ -98,7 +98,7 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
       seriesRef.current._priceLines.push(pl);
     });
 
-    const markers = (data.setups || []).map(s => ({
+    const setupMarkers = (data.setups || []).map(s => ({
       time: s.time,
       position: s.bias === 'bullish' ? 'belowBar' : 'aboveBar',
       color: s.bias === 'bullish' ? C.green : C.red,
@@ -107,7 +107,21 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
       // just overlap into an unreadable mess. The list below the chart
       // shows the actual labels instead.
     }));
-    seriesRef.current.setMarkers(markers);
+
+    // Historical Guide confluence signals (BUY/SELL, replayed across the
+    // full chart history) - bolder circle markers, distinct from the
+    // lighter pattern-setup arrows above, matching what the TradingView
+    // version shows by re-evaluating every bar.
+    const guideMarkers = (data.guide_signals || []).map(g => ({
+      time: g.time,
+      position: g.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+      color: g.direction === 'BUY' ? C.green : C.red,
+      shape: 'circle',
+      text: g.tier === 'STRONG' ? 'S' : g.tier === 'MODERATE' ? 'M' : 'W',
+    }));
+
+    const allMarkers = [...setupMarkers, ...guideMarkers].sort((a, b) => a.time - b.time);
+    seriesRef.current.setMarkers(allMarkers);
   }, [data]);
 
   return (
@@ -168,6 +182,21 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
             }}>
               <span>{s.label}</span>
               <span>{s.price.toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {data?.guide_signals?.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ color: C.muted, fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>GUIDE SIGNAL HISTORY</div>
+          {data.guide_signals.slice(-8).reverse().map((g, i) => (
+            <div key={`${g.time}-${i}`} style={{
+              display: 'flex', justifyContent: 'space-between',
+              color: g.direction === 'BUY' ? C.green : C.red,
+              fontSize: 13, padding: '4px 0', borderTop: `1px solid ${C.border}`,
+            }}>
+              <span>{g.direction} · {g.tier}</span>
+              <span>{g.price.toFixed(2)}</span>
             </div>
           ))}
         </div>
