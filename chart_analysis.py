@@ -44,7 +44,7 @@ def _cluster_levels(points, tolerance):
     return [{"price": float(np.mean(c)), "touches": len(c)} for c in clusters]
 
 
-def support_resistance(df: pd.DataFrame, lookback: int = 150, max_levels: int = 4):
+def support_resistance(df: pd.DataFrame, lookback: int = 150, max_levels: int = 2):
     """
     Returns up to `max_levels` support levels (below current price) and
     `max_levels` resistance levels (above current price), ranked by touch
@@ -115,18 +115,37 @@ def detect_setups(df: pd.DataFrame, support: list, resistance: list,
             continue
 
         near_tol = atr * near_tolerance_atr
+        # Only tag against the CLOSEST matching level, not every level within
+        # tolerance - clustered S/R levels were causing the same candle to
+        # get logged as multiple duplicate setups.
+        best_match = None
+        best_dist = None
         for level_type, lv in all_levels:
-            if abs(row["low"] - lv["price"]) <= near_tol or abs(row["high"] - lv["price"]) <= near_tol or \
-               abs(row["close"] - lv["price"]) <= near_tol:
-                if bull_pin and level_type == "support":
-                    setups.append(_mk_setup(row, "Pin Bar at Support", "bullish", lv))
-                elif bear_pin and level_type == "resistance":
-                    setups.append(_mk_setup(row, "Pin Bar at Resistance", "bearish", lv))
-                elif bull_engulf and level_type == "support":
-                    setups.append(_mk_setup(row, "Bullish Engulfing at Support", "bullish", lv))
-                elif bear_engulf and level_type == "resistance":
-                    setups.append(_mk_setup(row, "Bearish Engulfing at Resistance", "bearish", lv))
-    return setups
+            dist = min(abs(row["low"] - lv["price"]), abs(row["high"] - lv["price"]), abs(row["close"] - lv["price"]))
+            if dist <= near_tol and (best_dist is None or dist < best_dist):
+                best_match = (level_type, lv)
+                best_dist = dist
+
+        if best_match:
+            level_type, lv = best_match
+            if bull_pin and level_type == "support":
+                setups.append(_mk_setup(row, "Pin Bar at Support", "bullish", lv))
+            elif bear_pin and level_type == "resistance":
+                setups.append(_mk_setup(row, "Pin Bar at Resistance", "bearish", lv))
+            elif bull_engulf and level_type == "support":
+                setups.append(_mk_setup(row, "Bullish Engulfing at Support", "bullish", lv))
+            elif bear_engulf and level_type == "resistance":
+                setups.append(_mk_setup(row, "Bearish Engulfing at Resistance", "bearish", lv))
+
+    # Belt-and-suspenders dedupe: same (time, label) shouldn't appear twice
+    seen = set()
+    deduped = []
+    for s in setups:
+        key = (s["time"], s["label"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(s)
+    return deduped
 
 
 def _mk_setup(row, label, bias, level):
@@ -156,6 +175,7 @@ def get_gold_chart_data(interval: str = "15m", period: str = "5d", lookback: int
 
     support, resistance = support_resistance(df, lookback=lookback)
     setups = detect_setups(df, support, resistance)
+    setups = setups[-6:]  # only the most recent - avoids on-chart label clutter
 
     candles = [
         {"time": int(r["time"].timestamp()), "open": float(r["open"]), "high": float(r["high"]),
