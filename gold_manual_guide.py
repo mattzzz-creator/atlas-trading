@@ -259,7 +259,9 @@ def _historical_confluence(profile_key: str, max_bars: int = 300):
                 "tier": tier,
             })
             last_signal_i = i
-    return markers
+    return markers[-8:]  # cap what's SHOWN to the most recent few - keeps the
+                          # replay analysis correct over 300 bars, but avoids
+                          # recreating the same clutter that pushed us off TradingView
 
 
 # ── Timeframe profiles ──────────────────────────────────────────────────
