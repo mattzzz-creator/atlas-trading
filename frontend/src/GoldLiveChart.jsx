@@ -1,32 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 
-// Live Gold chart with server-detected support/resistance levels and
-// candlestick "setups" (pattern + level together) drawn automatically -
-// nothing is drawn by hand, it all comes from /api/chart/xauusd.
+// Live Gold chart, now controlled from OUTSIDE (parent picks the timeframe,
+// this just renders it) since the dashboard moved from a 4-panel grid to a
+// single chart + sidebar layout. Reports fetched data back up via onData so
+// the parent can drive the sidebar highlight, confluence detail strip, and
+// combined setups/history table without duplicating the fetch.
 //
-// Requires: npm install lightweight-charts
-//
-// Usage: <GoldLiveChart C={C} guideSignal={guideSignal} />
-// guideSignal is the "XAUUSD-GUIDE" entry from App.jsx's signals state -
-// passing it in surfaces the same trend/DXY/tier info the TradingView
-// version shows, right next to the chart instead of hidden behind a click.
+// Usage: <GoldLiveChart C={C} interval="15m" period="5d" guideSignal={sig} onData={setChartData} />
 
-const TIMEFRAMES = [
-  { label: '1m',  interval: '1m',  period: '7d' },   // Yahoo's hard limit for 1m data
-  { label: '5m',  interval: '5m',  period: '2d' },
-  { label: '15m', interval: '15m', period: '5d' },
-  { label: '30m', interval: '30m', period: '10d' },
-];
-
-export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockTf }) {
+export default function GoldLiveChart({ C, interval, period, guideSignal, onData, height }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const initialTf = TIMEFRAMES.find(t => t.label === defaultTf) || TIMEFRAMES[1];
-  const [tf, setTf] = useState(initialTf); // default 15m unless defaultTf given
 
   // Create the chart once
   useEffect(() => {
@@ -54,14 +42,17 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
     };
   }, []);
 
-  // Poll the backend - refetches whenever the chosen timeframe changes
+  // Refetch whenever the parent changes interval/period
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`/api/chart/xauusd?interval=${tf.interval}&period=${tf.period}`);
+        const res = await fetch(`/api/chart/xauusd?interval=${interval}&period=${period}`);
         const json = await res.json();
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+          if (onData) onData(json);
+        }
       } catch (e) {
         if (!cancelled) setError('Could not reach ATLAS chart endpoint');
       }
@@ -69,16 +60,15 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
     load();
     const id = setInterval(load, 60000); // refresh every 60s
     return () => { cancelled = true; clearInterval(id); };
-  }, [tf]);
+  }, [interval, period]);
 
-  // Render candles + support/resistance + setup markers whenever data updates
+  // Render candles + support/resistance + setup/guide markers whenever data updates
   useEffect(() => {
     if (!data || !seriesRef.current || !chartRef.current) return;
     if (!data.candles || data.candles.length === 0) return;
 
     seriesRef.current.setData(data.candles);
 
-    // Clear old price lines by re-adding the series' price lines fresh each time
     (seriesRef.current._priceLines || []).forEach(pl => seriesRef.current.removePriceLine(pl));
     seriesRef.current._priceLines = [];
 
@@ -103,15 +93,8 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
       position: s.bias === 'bullish' ? 'belowBar' : 'aboveBar',
       color: s.bias === 'bullish' ? C.green : C.red,
       shape: s.bias === 'bullish' ? 'arrowUp' : 'arrowDown',
-      // No text on the marker itself - long strings stacked close in time
-      // just overlap into an unreadable mess. The list below the chart
-      // shows the actual labels instead.
     }));
 
-    // Historical Guide confluence signals (BUY/SELL, replayed across the
-    // full chart history) - bolder circle markers, distinct from the
-    // lighter pattern-setup arrows above, matching what the TradingView
-    // version shows by re-evaluating every bar.
     const guideMarkers = (data.guide_signals || []).map(g => ({
       time: g.time,
       position: g.direction === 'BUY' ? 'belowBar' : 'aboveBar',
@@ -125,83 +108,35 @@ export default function GoldLiveChart({ C, guideSignal, defaultTf, height, lockT
     seriesRef.current.setMarkers(allMarkers);
   }, [data]);
 
+  // Nearest support/resistance to current price, for the pill badges
+  const nearestSupport = data?.support?.[0];
+  const nearestResistance = data?.resistance?.[0];
+
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>XAU/USD {lockTf ? `— ${tf.label}` : '— Live Chart'}</span>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {!lockTf && TIMEFRAMES.map(t => (
-            <button key={t.label} onClick={() => setTf(t)} style={{
-              padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-              background: tf.label === t.label ? '#1e2d45' : 'transparent',
-              border: `1px solid ${tf.label === t.label ? C.blue + '66' : C.border}`,
-              color: tf.label === t.label ? C.blue : C.muted,
-            }}>{t.label}</button>
-          ))}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>XAU/USD — {interval}</span>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {nearestSupport && (
+            <span style={{ background: '#052e16', color: C.green, border: `1px solid ${C.green}44`,
+              padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>
+              SUP {nearestSupport.price.toFixed(2)}
+            </span>
+          )}
+          {nearestResistance && (
+            <span style={{ background: '#1a0a0a', color: C.red, border: `1px solid ${C.red}44`,
+              padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>
+              RES {nearestResistance.price.toFixed(2)}
+            </span>
+          )}
           {data?.current_price && (
-            <span style={{ color: C.gold, fontFamily: 'JetBrains Mono', marginLeft: 8 }}>{data.current_price.toFixed(2)}</span>
+            <span style={{ color: C.gold, fontFamily: 'JetBrains Mono', fontWeight: 700 }}>{data.current_price.toFixed(2)}</span>
           )}
         </div>
       </div>
 
-      {/* Guide signal HUD - same info the TradingView dashboard shows, from
-          the XAUUSD-GUIDE signal ATLAS already generates every 3 minutes */}
-      {guideSignal && (
-        <div style={{ background: '#060609', border: `1px solid ${C.border}`, borderRadius: 8,
-          padding: '10px 12px', marginBottom: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: C.muted, fontSize: 10, letterSpacing: 2 }}>MANUAL GUIDE STATUS</span>
-            <span style={{
-              color: guideSignal.direction === 'BUY' ? C.green : guideSignal.direction === 'SELL' ? C.red : C.muted,
-              fontWeight: 800, fontSize: 12,
-            }}>
-              {guideSignal.direction !== 'HOLD' ? `${guideSignal.direction} · ${guideSignal.strength}` : 'WAIT'}
-            </span>
-          </div>
-          {guideSignal.indicators && Object.keys(guideSignal.indicators).length > 0 && (
-            <div style={{ display: 'flex', gap: 14, marginBottom: 6, fontSize: 11 }}>
-              <span style={{ color: C.muted }}>Trend: <span style={{ color: C.text }}>{guideSignal.indicators.trend}</span></span>
-              <span style={{ color: C.muted }}>DXY: <span style={{ color: C.text }}>{guideSignal.indicators.dxy_move}</span></span>
-            </div>
-          )}
-          {guideSignal.reasons?.map((r, i) => (
-            <div key={i} style={{ color: '#94a3b8', fontSize: 11, lineHeight: 1.5 }}>{r}</div>
-          ))}
-        </div>
-      )}
-
       {error && <div style={{ color: C.red, fontSize: 13, marginBottom: 8 }}>{error}</div>}
       <div ref={containerRef} />
-      {data?.setups?.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ color: C.muted, fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>RECENT SETUPS</div>
-          {data.setups.slice(-6).reverse().map((s, i) => (
-            <div key={`${s.time}-${s.label}`} style={{
-              display: 'flex', justifyContent: 'space-between',
-              color: s.bias === 'bullish' ? C.green : C.red,
-              fontSize: 13, padding: '4px 0', borderTop: `1px solid ${C.border}`,
-            }}>
-              <span>{s.label}</span>
-              <span>{s.price.toFixed(2)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {data?.guide_signals?.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ color: C.muted, fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>GUIDE SIGNAL HISTORY</div>
-          {data.guide_signals.slice(-8).reverse().map((g, i) => (
-            <div key={`${g.time}-${i}`} style={{
-              display: 'flex', justifyContent: 'space-between',
-              color: g.direction === 'BUY' ? C.green : C.red,
-              fontSize: 13, padding: '4px 0', borderTop: `1px solid ${C.border}`,
-            }}>
-              <span>{g.direction} · {g.tier}</span>
-              <span>{g.price.toFixed(2)}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
