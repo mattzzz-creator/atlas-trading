@@ -35,6 +35,7 @@ def run_scan():
     print(f"\n[ATLAS] Scanning all markets...")
     try:
         results = scan_all()
+        results = [sig for sig in results if sig.get("pair") == "XAUUSD"]  # Gold-only
         for sig in results:
             state["signals"][sig["pair"]] = sig
             if sig.get("confidence",0) >= 65 and sig.get("direction") != "HOLD" and sig.get("strength") != "WEAK" and sig.get("pair") in ("XAUUSD","EURUSD"):
