@@ -31,6 +31,8 @@ DXY_TICKER  = "DX-Y.NYB"
 PIP = 0.10
 
 MIN_COUNT_TO_TRADE = 3
+COOLDOWN_BARS = 10  # shared across BOTH directions, matching the TradingView fix -
+                     # prevents buy/sell/buy/sell from firing back-to-back on live data
 SL_ATR_MULT = 1.0
 TP_ATR_MULT = 2.0
 DXY_IMPULSE_LOOKBACK = 8
@@ -52,6 +54,25 @@ TIER_CONTEXT = {
     "MODERATE": "31% historical win rate, PF 0.99 (M5 backtest) - close to breakeven",
     "STRONG":   "rare - not enough backtest samples yet to trust a number",
 }
+
+# Cooldown state - persists across scans within this running process (Render
+# runs a single worker, so a plain in-memory dict is reliable here). Keyed by
+# profile so M1/M5/M15/M30 each have their own independent cooldown clock.
+_last_signal_time = {}
+
+_INTERVAL_TO_TIMEDELTA = {
+    "1m": pd.Timedelta(minutes=1), "5m": pd.Timedelta(minutes=5),
+    "15m": pd.Timedelta(minutes=15), "30m": pd.Timedelta(minutes=30),
+    "1h": pd.Timedelta(hours=1), "1d": pd.Timedelta(days=1),
+    "1wk": pd.Timedelta(weeks=1),
+}
+
+def _on_cooldown(profile_key: str, entry_interval: str, current_bar_time) -> bool:
+    last_time = _last_signal_time.get(profile_key)
+    if last_time is None:
+        return False
+    cooldown_td = _INTERVAL_TO_TIMEDELTA.get(entry_interval, pd.Timedelta(minutes=5)) * COOLDOWN_BARS
+    return (current_bar_time - last_time) <= cooldown_td
 
 # ── Timeframe profiles ──────────────────────────────────────────────────
 # Each profile scales EVERY reference timeframe up together, not just the
@@ -288,6 +309,11 @@ def scan_gold_manual_guide(profile_key: str = "M5") -> Signal:
     show_buy = (trend_bias >= 0) and buy_count >= MIN_COUNT_TO_TRADE and buy_count >= sell_count
     show_sell = (trend_bias <= 0) and sell_count >= MIN_COUNT_TO_TRADE and sell_count > buy_count
 
+    current_bar_time = entry_df["time"].iloc[-1]
+    if _on_cooldown(profile_key, p["entry_interval"], current_bar_time):
+        show_buy = False
+        show_sell = False
+
     if not (show_buy or show_sell):
         return _hold(pair, label, category,
             f"No confluence yet | BUY {buy_count}/5, SELL {sell_count}/5 | Trend({p['trend_interval']}): "
@@ -298,6 +324,7 @@ def scan_gold_manual_guide(profile_key: str = "M5") -> Signal:
     direction = "BUY" if show_buy else "SELL"
     count = buy_count if show_buy else sell_count
     tier = "STRONG" if count >= 5 else "MODERATE" if count == 4 else "WATCH"
+    _last_signal_time[profile_key] = current_bar_time  # start the shared cooldown clock
 
     sl = close - SL_ATR_MULT*atr if direction == "BUY" else close + SL_ATR_MULT*atr
     tp = close + TP_ATR_MULT*atr if direction == "BUY" else close - TP_ATR_MULT*atr
