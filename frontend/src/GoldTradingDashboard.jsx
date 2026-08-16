@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import GoldLiveChart from './GoldLiveChart.jsx';
-import AllSignalsSidebar, { TIMEFRAMES } from './AllSignalsSidebar.jsx';
+import AllSignalsSidebar from './AllSignalsSidebar.jsx';
 import GuideHistoryTable from './GuideHistoryTable.jsx';
 
-// Single-chart layout: main chart + timeframe-picker sidebar (like a
-// currency-pair list) + a combined setups/history table below, with a
-// collapsible "Confluence Detail" strip instead of a permanently-visible
-// HUD. Replaces the old 4-panel grid.
+// Single chart with timeframe TABS on the chart itself (not the sidebar),
+// a live signal FEED in the sidebar (fired signals across all 4 timeframes,
+// not a static picker), and a combined setups/history table below.
+
+const TIMEFRAMES = [
+  { label: 'M1',  interval: '1m',  period: '7d',  pair: 'XAUUSD-GUIDE-M1'  },
+  { label: 'M5',  interval: '5m',  period: '2d',  pair: 'XAUUSD-GUIDE-M5'  },
+  { label: 'M15', interval: '15m', period: '5d',  pair: 'XAUUSD-GUIDE-M15' },
+  { label: 'M30', interval: '30m', period: '10d', pair: 'XAUUSD-GUIDE-M30' },
+];
 
 export default function GoldTradingDashboard({ C, signals }) {
   const [activeTf, setActiveTf] = useState(TIMEFRAMES[1]); // default M5
@@ -26,10 +32,13 @@ export default function GoldTradingDashboard({ C, signals }) {
             guideSignal={activeSignal}
             onData={setChartData}
             height={480}
+            timeframes={TIMEFRAMES}
+            activeLabel={activeTf.label}
+            onTimeframeChange={setActiveTf}
           />
 
           {/* Confluence Detail - collapsed by default, expands to show the
-              same trend/DXY/sub-signal breakdown the old always-on HUD had */}
+              trend/DXY/sub-signal breakdown for whichever timeframe is active */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
             <div onClick={() => setDetailOpen(o => !o)} style={{
               cursor: 'pointer', padding: '10px 16px', display: 'flex',
@@ -47,7 +56,7 @@ export default function GoldTradingDashboard({ C, signals }) {
                   </div>
                 )}
                 {activeSignal.reasons?.map((r, i) => (
-                  <div key={i} style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.6 }}>{r}</div>
+                  <div key={i} style={{ color: '#475569', fontSize: 12, lineHeight: 1.6 }}>{r}</div>
                 ))}
               </div>
             )}
@@ -57,7 +66,7 @@ export default function GoldTradingDashboard({ C, signals }) {
           </div>
         </div>
 
-        <AllSignalsSidebar C={C} signals={signals} activeInterval={activeTf.interval} onSelect={setActiveTf} />
+        <AllSignalsSidebar C={C} />
       </div>
 
       <GuideHistoryTable C={C} setups={chartData?.setups} guideSignals={chartData?.guide_signals} />
