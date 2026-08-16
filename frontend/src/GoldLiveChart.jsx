@@ -9,7 +9,7 @@ import { createChart, ColorType } from 'lightweight-charts';
 //
 // Usage: <GoldLiveChart C={C} interval="15m" period="5d" guideSignal={sig} onData={setChartData} />
 
-export default function GoldLiveChart({ C, interval, period, guideSignal, onData, height }) {
+export default function GoldLiveChart({ C, interval, period, guideSignal, onData, height, timeframes, activeLabel, onTimeframeChange }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
@@ -115,16 +115,24 @@ export default function GoldLiveChart({ C, interval, period, guideSignal, onData
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <span style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>XAU/USD — {interval}</span>
+        <span style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>XAU/USD</span>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {timeframes && timeframes.map(tf => (
+            <button key={tf.label} onClick={() => onTimeframeChange && onTimeframeChange(tf)} style={{
+              padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 700,
+              background: activeLabel === tf.label ? '#dbeafe' : 'transparent',
+              border: `1px solid ${activeLabel === tf.label ? C.blue + '66' : C.border}`,
+              color: activeLabel === tf.label ? C.blue : C.muted,
+            }}>{tf.label}</button>
+          ))}
           {nearestSupport && (
-            <span style={{ background: '#052e16', color: C.green, border: `1px solid ${C.green}44`,
+            <span style={{ background: '#dcfce7', color: C.green, border: `1px solid ${C.green}44`,
               padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>
               SUP {nearestSupport.price.toFixed(2)}
             </span>
           )}
           {nearestResistance && (
-            <span style={{ background: '#1a0a0a', color: C.red, border: `1px solid ${C.red}44`,
+            <span style={{ background: '#fee2e2', color: C.red, border: `1px solid ${C.red}44`,
               padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>
               RES {nearestResistance.price.toFixed(2)}
             </span>
