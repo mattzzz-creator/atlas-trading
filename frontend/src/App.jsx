@@ -5,17 +5,17 @@ const API = "/api";
 const CAT_ICONS = { Forex:"💱", Stocks:"📈", Crypto:"₿" };
 
 const C = {
-  bg:      "#060609",
-  card:    "#0d0d16",
-  border:  "#1a1a2e",
-  gold:    "#f59e0b",
-  green:   "#10b981",
-  red:     "#ef4444",
-  blue:    "#3b82f6",
-  purple:  "#8b5cf6",
-  text:    "#e2e8f0",
+  bg:      "#f8fafc",
+  card:    "#ffffff",
+  border:  "#e2e8f0",
+  gold:    "#d97706",
+  green:   "#059669",
+  red:     "#dc2626",
+  blue:    "#2563eb",
+  purple:  "#7c3aed",
+  text:    "#0f172a",
   muted:   "#64748b",
-  dim:     "#334155",
+  dim:     "#94a3b8",
 };
 
 // ── Utility ──────────────────────────────────────────────────
@@ -51,7 +51,7 @@ function Sessions() {
         return <div key={s.name} style={{
           padding:"3px 8px",borderRadius:20,fontSize:10,fontWeight:600,
           background:on?s.color+"22":"transparent",
-          border:`1px solid ${on?s.color:"#1a1a2e"}`,
+          border:`1px solid ${on?s.color:"#e2e8f0"}`,
           color:on?s.color:C.dim,
         }}>{on?"●":"○"} {s.name}</div>;
       })}
@@ -70,7 +70,7 @@ function SignalCard({ sig, onSelect, isSelected }) {
   return (
     <div onClick={()=>onSelect(sig)}
       style={{
-        background: isSelected?"#0f1729":C.card,
+        background: isSelected?"#eff6ff":C.card,
         border:`1px solid ${isSelected?"#3b82f6":isAct?dc+"44":C.border}`,
         borderRadius:12,padding:16,cursor:"pointer",
         transition:"all 0.2s",
@@ -109,7 +109,7 @@ function SignalCard({ sig, onSelect, isSelected }) {
             ["TP1",    sig.take_profit_1, C.green],
             ["TP2",    sig.take_profit_2, "#34d399"],
           ].map(([l,v,c])=>(
-            <div key={l} style={{background:"#060609",borderRadius:7,padding:"7px 9px"}}>
+            <div key={l} style={{background:"#f1f5f9",borderRadius:7,padding:"7px 9px"}}>
               <div style={{color:C.dim,fontSize:9,marginBottom:2}}>{l}</div>
               <div style={{color:c,fontSize:12,fontWeight:700,fontFamily:"JetBrains Mono"}}>{fmt(v)}</div>
             </div>
@@ -189,7 +189,7 @@ function DetailPanel({ sig, onOutcome }) {
           <span style={{color:C.muted,fontSize:10}}>CONFIDENCE</span>
           <span style={{color:cc,fontSize:12,fontWeight:700}}>{conf}%</span>
         </div>
-        <div style={{background:"#0d0d16",borderRadius:4,height:6,overflow:"hidden"}}>
+        <div style={{background:"#e2e8f0",borderRadius:4,height:6,overflow:"hidden"}}>
           <div style={{background:cc,height:"100%",width:`${conf}%`,transition:"width 0.5s ease"}} />
         </div>
       </div>
@@ -212,7 +212,7 @@ function DetailPanel({ sig, onOutcome }) {
             ["✅ TP1",     sig.take_profit_1, C.green, `${sig.tp1_pips} pips profit`],
             ["🎯 TP2",     sig.take_profit_2, "#34d399","Extended target"],
           ].map(([l,v,c,h])=>(
-            <div key={l} style={{background:"#060609",borderRadius:8,padding:"10px 12px"}}>
+            <div key={l} style={{background:"#f1f5f9",borderRadius:8,padding:"10px 12px"}}>
               <div style={{color:C.dim,fontSize:9,marginBottom:3}}>{l}</div>
               <div style={{color:c,fontSize:15,fontWeight:700,fontFamily:"JetBrains Mono"}}>{fmt(v)}</div>
               <div style={{color:C.muted,fontSize:10,marginTop:2}}>{h}</div>
@@ -228,7 +228,7 @@ function DetailPanel({ sig, onOutcome }) {
             <span style={{color:C.green,fontSize:10,fontWeight:700}}>BULL {bull}</span>
             <span style={{color:C.red,fontSize:10,fontWeight:700}}>BEAR {bear}</span>
           </div>
-          <div style={{background:"#1a1a2e",borderRadius:4,height:6,overflow:"hidden",display:"flex"}}>
+          <div style={{background:"#e2e8f0",borderRadius:4,height:6,overflow:"hidden",display:"flex"}}>
             <div style={{background:`linear-gradient(90deg,${C.green},#34d399)`,
               height:"100%",width:`${bull/total*100}%`,transition:"width 0.5s"}} />
             <div style={{background:`linear-gradient(90deg,#ef4444,#f87171)`,
@@ -250,7 +250,7 @@ function DetailPanel({ sig, onOutcome }) {
               ["Support",ind.support,    C.green],
               ["Resist", ind.resistance, C.red],
             ].map(([l,v,c])=>(
-              <div key={l} style={{background:"#060609",borderRadius:6,padding:"7px 9px",textAlign:"center"}}>
+              <div key={l} style={{background:"#f1f5f9",borderRadius:6,padding:"7px 9px",textAlign:"center"}}>
                 <div style={{color:C.dim,fontSize:9,marginBottom:2}}>{l}</div>
                 <div style={{color:c,fontSize:11,fontWeight:700,fontFamily:"JetBrains Mono"}}>
                   {v?Number(v).toFixed(4):"—"}
@@ -268,7 +268,7 @@ function DetailPanel({ sig, onOutcome }) {
           {sig.reasons.map((r,i)=>(
             <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"flex-start"}}>
               <span style={{color:C.gold,flexShrink:0,fontSize:12}}>▸</span>
-              <span style={{color:"#94a3b8",fontSize:12,lineHeight:1.5}}>{r}</span>
+              <span style={{color:"#475569",fontSize:12,lineHeight:1.5}}>{r}</span>
             </div>
           ))}
         </div>
@@ -276,7 +276,7 @@ function DetailPanel({ sig, onOutcome }) {
 
       {/* Step by step */}
       {isAct&&(
-        <div style={{background:"#060609",borderRadius:8,padding:14,marginBottom:14}}>
+        <div style={{background:"#f1f5f9",borderRadius:8,padding:14,marginBottom:14}}>
           <div style={{color:C.dim,fontSize:9,letterSpacing:2,marginBottom:10}}>STEP BY STEP</div>
           {[
             {n:"1",t:`Open ${dir} at ${fmt(sig.entry)}`,c:C.gold},
@@ -286,7 +286,7 @@ function DetailPanel({ sig, onOutcome }) {
             {n:"5",t:"If SL hit — close and wait for next signal. No revenge trading.",c:C.muted},
           ].map(({n,t,c})=>(
             <div key={n} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
-              <div style={{width:20,height:20,borderRadius:"50%",background:"#1a1a2e",
+              <div style={{width:20,height:20,borderRadius:"50%",background:"#e2e8f0",
                 color:C.gold,fontSize:10,fontWeight:700,display:"flex",
                 alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</div>
               <div style={{color:c,fontSize:12,lineHeight:1.5}}>{t}</div>
@@ -299,7 +299,7 @@ function DetailPanel({ sig, onOutcome }) {
       {sig.warnings?.length>0&&sig.warnings[0]&&(
         <div style={{marginBottom:14}}>
           {sig.warnings.map((w,i)=>(
-            <div key={i} style={{background:"#1a1200",border:"1px solid #f59e0b33",
+            <div key={i} style={{background:"#fef3c7",border:"1px solid #f59e0b55",
               borderRadius:6,padding:"7px 10px",marginBottom:5,
               color:C.gold,fontSize:11}}>{w}</div>
           ))}
@@ -315,8 +315,8 @@ function DetailPanel({ sig, onOutcome }) {
               <button key={o} onClick={()=>onOutcome(o)} style={{
                 flex:1,padding:"8px 4px",borderRadius:8,cursor:"pointer",
                 fontSize:11,fontWeight:700,
-                background:o==="WIN"?"#052e16":o==="LOSS"?"#1a0a0a":"#0d0d16",
-                border:`1px solid ${o==="WIN"?"#10b98144":o==="LOSS"?"#ef444444":"#1a1a2e"}`,
+                background:o==="WIN"?"#dcfce7":o==="LOSS"?"#fee2e2":"#f1f5f9",
+                border:`1px solid ${o==="WIN"?"#05966944":o==="LOSS"?"#dc262644":"#e2e8f0"}`,
                 color:o==="WIN"?C.green:o==="LOSS"?C.red:C.muted,
               }}>{o==="WIN"?"✅ WIN":o==="LOSS"?"❌ LOSS":"➡ B/E"}</button>
             ))}
@@ -343,7 +343,7 @@ function MarketBar({ signals }) {
         <span style={{color:C.red,fontWeight:700,fontSize:13}}>▼ {sells} SELL</span>
         <span style={{color:C.muted,fontSize:13}}>{signals.length-active.length} WAIT</span>
       </div>
-      <div style={{flex:1,background:"#0d0d16",borderRadius:4,height:5,overflow:"hidden",display:"flex"}}>
+      <div style={{flex:1,background:"#e2e8f0",borderRadius:4,height:5,overflow:"hidden",display:"flex"}}>
         <div style={{background:C.green,width:`${buys/signals.length*100}%`,height:"100%"}} />
         <div style={{background:C.red,width:`${sells/signals.length*100}%`,height:"100%"}} />
       </div>
@@ -431,7 +431,7 @@ export default function App() {
           {/* Scan button */}
           <button onClick={triggerScan} disabled={scanning||!online}
             style={{display:"flex",alignItems:"center",gap:6,
-              background:scanning?"#1a1a2e":C.gold,
+              background:scanning?"#e2e8f0":C.gold,
               color:scanning?"#555":"#000",border:"none",
               padding:"8px 16px",borderRadius:8,fontWeight:800,
               fontSize:12,cursor:scanning?"not-allowed":"pointer",letterSpacing:1,
@@ -458,7 +458,7 @@ export default function App() {
 
       {/* ── Offline banner ── */}
       {!online&&(
-        <div style={{background:"#1a0a00",borderBottom:`1px solid ${C.red}33`,
+        <div style={{background:"#fee2e2",borderBottom:`1px solid ${C.red}33`,
           color:C.red,padding:"10px 24px",fontSize:12}}>
           ⚠️ Cannot reach ATLAS server. Make sure the backend is running and deployed.
         </div>
@@ -466,9 +466,9 @@ export default function App() {
 
       {/* ── Scan status bar ── */}
       {scanning&&(
-        <div style={{background:"#0a1628",borderBottom:`1px solid ${C.blue}33`,
+        <div style={{background:"#dbeafe",borderBottom:`1px solid ${C.blue}33`,
           padding:"8px 24px",display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:"100%",background:"#1a2a3a",borderRadius:2,height:3,overflow:"hidden"}}>
+          <div style={{width:"100%",background:"#e2e8f0",borderRadius:2,height:3,overflow:"hidden"}}>
             <div style={{height:"100%",background:C.blue,
               animation:"scanLine 3s ease infinite"}} />
           </div>
