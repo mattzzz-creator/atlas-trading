@@ -15,8 +15,8 @@ from dataclasses import asdict
 
 from signal_engine import scan_all, analyze, MARKETS
 from market_data import fetch_market
-from telegram_bot import send_signal, send_scan_summary, send_daily_morning, send_daily_evening
-from gold_manual_guide import scan_all_gold_guide_timeframes, _historical_confluence
+from telegram_bot import send_signal, send_scan_summary, send_daily_morning, send_daily_evening, send_message, BOT_TOKEN, CHAT_ID
+from gold_manual_guide import scan_all_gold_guide_timeframes, _historical_confluence, all_timeframes_signal_feed
 from chart_analysis import get_gold_chart_data
 
 # ─── State ────────────────────────────────────────────────────
@@ -96,6 +96,19 @@ app = FastAPI(title="ATLAS Trading Signal System", version="1.0.0", lifespan=lif
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"])
 
+@app.get("/api/test-telegram")
+def test_telegram():
+    """Sends a real test message right now, so you can confirm the whole
+    Telegram pipe works without waiting for a real market signal to fire.
+    Also reports whether the token/chat ID are even configured, since a
+    missing env var is a common silent-failure cause."""
+    configured = bool(BOT_TOKEN) and bool(CHAT_ID)
+    if not configured:
+        return {"configured": False, "sent": False,
+                "note": "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set on Render - check the Environment tab."}
+    ok = send_message("✅ ATLAS test message — if you see this in your Telegram group, the pipe is working correctly.")
+    return {"configured": True, "sent": ok}
+
 @app.get("/api/health")
 def health():
     return {"status":"online","system":"ATLAS v1.0",
@@ -164,6 +177,17 @@ def get_gold_chart(interval: str = "15m", period: str = "5d"):
     else:
         data["guide_signals"] = []
     return JSONResponse(content=data)
+
+@app.get("/api/gold-guide/feed")
+def get_gold_guide_feed():
+    """Sidebar signal feed - fired signals across ALL 4 timeframes, newest
+    first. This is what the sidebar shows, not a static per-timeframe
+    picker."""
+    try:
+        return JSONResponse(content={"feed": all_timeframes_signal_feed()})
+    except Exception as e:
+        print(f"[ATLAS] Signal feed error: {e}")
+        return JSONResponse(content={"feed": []})
 
 # ─── Backtest — run once, download as CSV (no shell needed) ────
 _backtest_cache = {}  # keyed by (strategy, period) -> (trades, candles)
