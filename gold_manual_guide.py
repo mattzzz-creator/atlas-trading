@@ -561,3 +561,20 @@ def scan_all_gold_guide_timeframes():
             results.append(_hold(p["pair"], f"XAU/USD {p['tf_label']} (Manual Guide)", "Forex",
                                   f"Scan error: {e}", datetime.now(timezone.utc).isoformat()))
     return results
+
+
+def all_timeframes_signal_feed():
+    """Combines the historical fired-signal replay from ALL 4 timeframes into
+    one chronological feed - this is what the sidebar shows, not a static
+    per-timeframe picker. Each entry is tagged with which timeframe fired it."""
+    feed = []
+    for k, p in PROFILES.items():
+        try:
+            markers = _historical_confluence(k)
+        except Exception as e:
+            print(f"[GoldGuide] Feed error for {k}: {e}")
+            markers = []
+        for m in markers:
+            feed.append({**m, "timeframe": p["tf_label"]})
+    feed.sort(key=lambda x: x["time"], reverse=True)
+    return feed[:20]
