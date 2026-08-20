@@ -305,8 +305,14 @@ def _true_range_atr(df, n=14):
     return tr.rolling(n).mean()
 
 
+WINDOW_BARS = 5  # how far back each of the 5 signals can look to still "count" -
+                  # same-bar-only was too strict an intersection for 5 independently
+                  # rare conditions; real confluence means aligning within a
+                  # reasonable window, not the literal same candle
+
 def _dxy_divergence_signal(gold_df, dxy_df, atr_series):
-    """Stateful - walk through bars once, return (buy, sell) for the latest bar only."""
+    """Stateful - walk through bars once. Returns True if a divergence fired
+    within the last WINDOW_BARS bars, not just the very last one."""
     if dxy_df.empty or len(dxy_df) < DXY_IMPULSE_LOOKBACK + DXY_MAX_COILED_BARS + 15:
         return False, False
     dxy_close = dxy_df["close"].reset_index(drop=True)
@@ -317,7 +323,7 @@ def _dxy_divergence_signal(gold_df, dxy_df, atr_series):
     impulse_start = impulse_extreme = 0.0
     impulse_dir = 0
     coiled = 0
-    buy = sell = False
+    last_buy_i, last_sell_i = -9999, -9999
     for i in range(DXY_IMPULSE_LOOKBACK + 14, n):
         dc = dxy_close.iloc[i]
         dclb = dxy_close.iloc[i - DXY_IMPULSE_LOOKBACK]
@@ -332,7 +338,6 @@ def _dxy_divergence_signal(gold_df, dxy_df, atr_series):
             continue
         gmove_atr = gmove / gatr
 
-        buy = sell = False
         if state == 0:
             if abs(dmove_atr) >= DXY_IMPULSE_THRESH_ATR and abs(gmove_atr) <= DXY_COMPRESS_THRESH_ATR:
                 state = 1
@@ -349,43 +354,48 @@ def _dxy_divergence_signal(gold_df, dxy_df, atr_series):
             retr_pct = (retr / rng * 100.0) if rng > 0 else 0.0
             if retr_pct >= DXY_RETRACE_TRIGGER_PCT:
                 sig_dir = -impulse_dir
-                buy, sell = (sig_dir > 0), (sig_dir < 0)
+                if sig_dir > 0: last_buy_i = i
+                else: last_sell_i = i
                 state = 0
             elif coiled >= DXY_MAX_COILED_BARS:
                 state = 0
-    return buy, sell
+    return (n - 1 - last_buy_i) <= WINDOW_BARS, (n - 1 - last_sell_i) <= WINDOW_BARS
 
 
 def _ema_pullback_signal(gold_df, htf_ema_series, atr_series):
     c, o, h, l = gold_df["close"], gold_df["open"], gold_df["high"], gold_df["low"]
-    i = len(gold_df) - 1
-    atr = atr_series.iloc[i]
-    if pd.isna(atr) or atr <= 0 or i < 2:
-        return False, False
-    htf_ema = htf_ema_series.iloc[-1]
-    trend_up, trend_down = c.iloc[i] > htf_ema, c.iloc[i] < htf_ema
-    near_up = htf_ema - EMA_PULLBACK_ATR*atr <= l.iloc[i] <= htf_ema + EMA_PULLBACK_ATR*atr
-    near_down = htf_ema - EMA_PULLBACK_ATR*atr <= h.iloc[i] <= htf_ema + EMA_PULLBACK_ATR*atr
-    cont_up = c.iloc[i] > o.iloc[i] and (c.iloc[i]-o.iloc[i]) >= EMA_CONT_BODY_ATR*atr and c.iloc[i] > h.iloc[i-1]
-    cont_down = c.iloc[i] < o.iloc[i] and (o.iloc[i]-c.iloc[i]) >= EMA_CONT_BODY_ATR*atr and c.iloc[i] < l.iloc[i-1]
-    return (trend_up and near_up and cont_up), (trend_down and near_down and cont_down)
+    n = len(gold_df)
+    buy_found, sell_found = False, False
+    for i in range(max(2, n - 1 - WINDOW_BARS), n):
+        atr = atr_series.iloc[i]
+        if pd.isna(atr) or atr <= 0:
+            continue
+        htf_ema = htf_ema_series.iloc[min(i, len(htf_ema_series) - 1)]
+        trend_up, trend_down = c.iloc[i] > htf_ema, c.iloc[i] < htf_ema
+        near_up = htf_ema - EMA_PULLBACK_ATR*atr <= l.iloc[i] <= htf_ema + EMA_PULLBACK_ATR*atr
+        near_down = htf_ema - EMA_PULLBACK_ATR*atr <= h.iloc[i] <= htf_ema + EMA_PULLBACK_ATR*atr
+        cont_up = c.iloc[i] > o.iloc[i] and (c.iloc[i]-o.iloc[i]) >= EMA_CONT_BODY_ATR*atr and c.iloc[i] > h.iloc[i-1]
+        cont_down = c.iloc[i] < o.iloc[i] and (o.iloc[i]-c.iloc[i]) >= EMA_CONT_BODY_ATR*atr and c.iloc[i] < l.iloc[i-1]
+        if trend_up and near_up and cont_up: buy_found = True
+        if trend_down and near_down and cont_down: sell_found = True
+    return buy_found, sell_found
 
 
 def _break_retest_signal(gold_df, atr_series):
-    """Stateful - walk through bars once."""
+    """Stateful - walk through bars once. Returns True if a break-and-retest
+    fired within the last WINDOW_BARS bars, not just the very last one."""
     c, h, l = gold_df["close"], gold_df["high"], gold_df["low"]
     n = len(gold_df)
     if n < BRK_LOOKBACK + 5:
         return False, False
     level, direction, awaiting = 0.0, 0, False
-    buy = sell = False
+    last_buy_i, last_sell_i = -9999, -9999
     for i in range(BRK_LOOKBACK, n):
         atr = atr_series.iloc[i]
         if pd.isna(atr) or atr <= 0:
             continue
         recent_high = h.iloc[i-BRK_LOOKBACK:i].max()
         recent_low = l.iloc[i-BRK_LOOKBACK:i].min()
-        buy = sell = False
         if not awaiting:
             if c.iloc[i] > recent_high:
                 level, direction, awaiting = recent_high, 1, True
@@ -393,43 +403,50 @@ def _break_retest_signal(gold_df, atr_series):
                 level, direction, awaiting = recent_low, -1, True
         if awaiting and direction == 1:
             if l.iloc[i] <= level + BRK_RETEST_TOL_ATR*atr and c.iloc[i] > level:
-                buy, awaiting = True, False
+                last_buy_i = i
+                awaiting = False
             elif c.iloc[i] < level - BRK_RETEST_TOL_ATR*atr:
                 awaiting = False
         if awaiting and direction == -1:
             if h.iloc[i] >= level - BRK_RETEST_TOL_ATR*atr and c.iloc[i] < level:
-                sell, awaiting = True, False
+                last_sell_i = i
+                awaiting = False
             elif c.iloc[i] > level + BRK_RETEST_TOL_ATR*atr:
                 awaiting = False
-    return buy, sell
+    return (n - 1 - last_buy_i) <= WINDOW_BARS, (n - 1 - last_sell_i) <= WINDOW_BARS
 
 
 def _htf_momentum_signal(gold_df, htf_ma_series, atr_series):
     c, o = gold_df["close"], gold_df["open"]
-    i = len(gold_df) - 1
-    atr = atr_series.iloc[i]
-    if pd.isna(atr) or atr <= 0:
-        return False, False
-    htf_ma = htf_ma_series.iloc[-1]
-    body = c.iloc[i] - o.iloc[i]
-    return (c.iloc[i] > htf_ma and body >= IMPULSE_BODY_ATR*atr), \
-           (c.iloc[i] < htf_ma and -body >= IMPULSE_BODY_ATR*atr)
+    n = len(gold_df)
+    buy_found, sell_found = False, False
+    for i in range(max(0, n - 1 - WINDOW_BARS), n):
+        atr = atr_series.iloc[i]
+        if pd.isna(atr) or atr <= 0:
+            continue
+        htf_ma = htf_ma_series.iloc[min(i, len(htf_ma_series) - 1)]
+        body = c.iloc[i] - o.iloc[i]
+        if c.iloc[i] > htf_ma and body >= IMPULSE_BODY_ATR*atr: buy_found = True
+        if c.iloc[i] < htf_ma and -body >= IMPULSE_BODY_ATR*atr: sell_found = True
+    return buy_found, sell_found
 
 
 def _ema_9_50_signal(gold_df, atr_series):
     c, o, h, l = gold_df["close"], gold_df["open"], gold_df["high"], gold_df["low"]
     ema9, ema50 = _ema(c, FAST_LEN), _ema(c, SLOW_LEN)
-    i = len(gold_df) - 1
-    atr = atr_series.iloc[i]
-    if pd.isna(atr) or atr <= 0:
-        return False, False
-    e9, e50 = ema9.iloc[i], ema50.iloc[i]
-    trend_up, trend_down = e9 > e50 and c.iloc[i] > e50, e9 < e50 and c.iloc[i] < e50
-    touched_up = e9 - TOUCH_ATR*atr <= l.iloc[i] <= e9 + TOUCH_ATR*atr
-    touched_down = e9 - TOUCH_ATR*atr <= h.iloc[i] <= e9 + TOUCH_ATR*atr
-    buy = trend_up and touched_up and c.iloc[i] > o.iloc[i] and c.iloc[i] > e9
-    sell = trend_down and touched_down and c.iloc[i] < o.iloc[i] and c.iloc[i] < e9
-    return buy, sell
+    n = len(gold_df)
+    buy_found, sell_found = False, False
+    for i in range(max(0, n - 1 - WINDOW_BARS), n):
+        atr = atr_series.iloc[i]
+        if pd.isna(atr) or atr <= 0:
+            continue
+        e9, e50 = ema9.iloc[i], ema50.iloc[i]
+        trend_up, trend_down = e9 > e50 and c.iloc[i] > e50, e9 < e50 and c.iloc[i] < e50
+        touched_up = e9 - TOUCH_ATR*atr <= l.iloc[i] <= e9 + TOUCH_ATR*atr
+        touched_down = e9 - TOUCH_ATR*atr <= h.iloc[i] <= e9 + TOUCH_ATR*atr
+        if trend_up and touched_up and c.iloc[i] > o.iloc[i] and c.iloc[i] > e9: buy_found = True
+        if trend_down and touched_down and c.iloc[i] < o.iloc[i] and c.iloc[i] < e9: sell_found = True
+    return buy_found, sell_found
 
 
 def _candle_pattern(gold_df):
