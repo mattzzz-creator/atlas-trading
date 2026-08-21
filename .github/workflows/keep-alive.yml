@@ -1,0 +1,29 @@
+name: Keep ATLAS Awake + Trigger Scan
+
+# Pings ATLAS's /api/scan endpoint every 10 minutes - this does TWO things
+# at once: (1) keeps Render's free-tier service from spinning down (it only
+# sleeps after 15 min with ZERO inbound traffic), and (2) actually triggers
+# a real scan + Telegram send, not just a no-op health check.
+#
+# 10 minutes, not 5: GitHub's own docs note scheduled workflows can be
+# delayed during high load on GitHub's infrastructure - a 10-minute
+# interval leaves a safety margin under Render's 15-minute sleep window
+# even if a run gets delayed a few minutes.
+#
+# Honest limitation: Render's free tier caps at 750 compute-hours/month.
+# Keeping it awake ~24/7 uses close to that whole cap with very little
+# buffer - if you see unexpected gaps near the end of a month, that's why.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:  # lets you also trigger it manually from the Actions tab
+
+jobs:
+  ping-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ATLAS scan
+        run: |
+          echo "Pinging ATLAS /api/scan..."
+          curl -s -X POST -o /dev/null -w "HTTP %{http_code}\n" https://atlas-trading-9kir.onrender.com/api/scan
